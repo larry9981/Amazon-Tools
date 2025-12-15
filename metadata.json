@@ -1,0 +1,5 @@
+{
+  "name": "AmzKeyword AI",
+  "description": "An AI-powered Amazon keyword research tool that uses Gemini and Google Search Grounding to discover high-value keywords, estimate volumes, and analyze competition.",
+  "requestFramePermissions": []
+}
