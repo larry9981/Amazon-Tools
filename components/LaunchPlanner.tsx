@@ -58,7 +58,7 @@ const LaunchPlanner: React.FC<LaunchPlannerProps> = ({ language, productContext,
             setPlan(res.plan);
             setAdStrategy(res.adStrategy);
         } catch (e) {
-            alert("Error generating plan. Please try again.");
+            alert("生成计划时出错，请重试。");
             console.error(e);
         } finally {
             setIsLoading(false);
@@ -71,16 +71,16 @@ const LaunchPlanner: React.FC<LaunchPlannerProps> = ({ language, productContext,
                 <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-orange-100 mb-6">
                     <AlertTriangle className="w-8 h-8 text-amz-orange" />
                 </div>
-                <h2 className="text-2xl font-bold text-gray-900 mb-4">No Content Generated Yet</h2>
+                <h2 className="text-2xl font-bold text-gray-900 mb-4">尚未生成产品内容</h2>
                 <p className="text-gray-600 mb-8 max-w-lg mx-auto">
-                    To create a data-driven 60-day launch plan, we first need to understand your product. 
-                    Please generate your listing content and images first.
+                    为了制定数据驱动的 60 天推广计划，我们需要先了解您的产品。
+                    请先前往“文案/图片生成”页面生成内容。
                 </p>
                 <button 
                     onClick={() => setActiveTab('content')}
                     className="inline-flex items-center px-6 py-3 bg-amz-blue text-white font-medium rounded-lg hover:bg-opacity-90 transition-colors"
                 >
-                    Go to Content Generator <ArrowRight className="ml-2 w-4 h-4" />
+                    前往内容生成页面 <ArrowRight className="ml-2 w-4 h-4" />
                 </button>
             </div>
         );
@@ -91,11 +91,11 @@ const LaunchPlanner: React.FC<LaunchPlannerProps> = ({ language, productContext,
             {/* Action Header */}
             <div className="bg-white p-8 rounded-xl border border-gray-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-6">
                  <div className="flex-1">
-                     <h2 className="text-2xl font-bold text-gray-800 mb-2">60-Day Amazon Launch Roadmap</h2>
+                     <h2 className="text-2xl font-bold text-gray-800 mb-2">60天亚马逊新品推广路线图</h2>
                      <p className="text-gray-500">
-                         Generating strategy for: <span className="font-semibold text-amz-blue">{productContext.title || "Your Product"}</span>
+                         正在规划产品: <span className="font-semibold text-amz-blue">{productContext.title || "Your Product"}</span>
                      </p>
-                     <p className="text-xs text-gray-400 mt-1">Goal: 30-40 Sales/Day • Market: {language}</p>
+                     <p className="text-xs text-gray-400 mt-1">目标: 日销 30-40 单 • 市场: {language}</p>
                  </div>
                  
                  <button 
@@ -104,7 +104,7 @@ const LaunchPlanner: React.FC<LaunchPlannerProps> = ({ language, productContext,
                     className="bg-amz-orange text-white px-8 py-4 rounded-lg font-bold hover:bg-opacity-90 flex items-center shadow-md transition-transform active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                     {isLoading ? <Loader2 className="animate-spin mr-2" /> : <Rocket className="mr-2 w-5 h-5" />}
-                    {plan ? "Regenerate Plan" : "Generate 60-Day Plan"}
+                    {plan ? "重新生成计划" : "生成60天推广计划"}
                 </button>
             </div>
 
@@ -114,7 +114,7 @@ const LaunchPlanner: React.FC<LaunchPlannerProps> = ({ language, productContext,
                     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                         <div className="bg-blue-50 p-4 border-b border-blue-100 flex items-center">
                             <Rocket className="w-5 h-5 text-amz-blue mr-2" />
-                            <h3 className="font-bold text-amz-dark">Launch Execution Steps</h3>
+                            <h3 className="font-bold text-amz-dark">推广执行步骤 (Launch Execution)</h3>
                         </div>
                         <div className="p-4 space-y-6 max-h-[600px] overflow-y-auto">
                             {plan.map((phase, idx) => (
@@ -127,7 +127,7 @@ const LaunchPlanner: React.FC<LaunchPlannerProps> = ({ language, productContext,
                                     <h4 className="font-bold text-gray-800 mb-2">{phase.focus}</h4>
                                     
                                     <div className="bg-gray-50 p-3 rounded-lg mb-3">
-                                        <p className="text-xs font-bold text-gray-500 uppercase mb-2">Key Actions</p>
+                                        <p className="text-xs font-bold text-gray-500 uppercase mb-2">关键行动 (Key Actions)</p>
                                         <ul className="text-sm text-gray-600 space-y-2">
                                             {phase.actions.map((act, i) => (
                                                 <li key={i} className="flex items-start">
@@ -154,13 +154,13 @@ const LaunchPlanner: React.FC<LaunchPlannerProps> = ({ language, productContext,
                     <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-full">
                         <div className="bg-purple-50 p-4 border-b border-purple-100 flex items-center">
                             <Network className="w-5 h-5 text-purple-700 mr-2" />
-                            <h3 className="font-bold text-purple-900">3-Month PPC Architecture</h3>
+                            <h3 className="font-bold text-purple-900">3个月 PPC 广告架构</h3>
                         </div>
                         <div className="p-6 bg-slate-50 flex-1 overflow-auto min-h-[400px]">
                              <MindMapNode node={adStrategy} />
                         </div>
                         <div className="p-3 bg-white border-t border-gray-200 text-xs text-center text-gray-400">
-                            Click nodes to expand/collapse structure.
+                            点击节点展开/折叠结构。
                         </div>
                     </div>
                 </div>

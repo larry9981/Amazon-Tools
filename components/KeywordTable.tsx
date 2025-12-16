@@ -8,7 +8,8 @@ interface KeywordTableProps {
 
 const KeywordTable: React.FC<KeywordTableProps> = ({ data }) => {
   const downloadCSV = () => {
-    const headers = ['Tier', 'Keyword', 'Volume', 'Competition', 'CPC', 'Intent'];
+    // Translated headers for CSV
+    const headers = ['层级 (Tier)', '关键词 (Keyword)', '搜索量 (Volume)', '竞争度 (Competition)', 'CPC', '意图 (Intent)'];
     const rows = data.map(k => [
       k.tier,
       `"${k.keyword}"`, 
@@ -30,7 +31,7 @@ const KeywordTable: React.FC<KeywordTableProps> = ({ data }) => {
   const copyToClipboard = () => {
     const text = data.map(k => `${k.keyword} (${k.tier})`).join('\n');
     navigator.clipboard.writeText(text);
-    alert('Keywords copied to clipboard!');
+    alert('关键词已复制到剪贴板!');
   };
 
   const groupedData = useMemo(() => {
@@ -72,14 +73,14 @@ const KeywordTable: React.FC<KeywordTableProps> = ({ data }) => {
       <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-gray-200">
          <h2 className="text-xl font-bold text-amz-dark flex items-center">
           <span className="bg-amz-orange w-2 h-6 mr-3 rounded-sm"></span>
-          Keyword Analysis ({data.length})
+          关键词分析列表 ({data.length})
         </h2>
         <div className="flex gap-2">
            <button onClick={copyToClipboard} className="btn-secondary flex items-center px-3 py-2 text-sm border rounded hover:bg-gray-50">
-            <Copy className="w-4 h-4 mr-2" /> Copy
+            <Copy className="w-4 h-4 mr-2" /> 复制列表
           </button>
           <button onClick={downloadCSV} className="btn-primary flex items-center px-3 py-2 text-sm bg-amz-blue text-white rounded hover:opacity-90">
-            <Download className="w-4 h-4 mr-2" /> Export CSV
+            <Download className="w-4 h-4 mr-2" /> 导出 CSV
           </button>
         </div>
       </div>
@@ -96,12 +97,12 @@ const KeywordTable: React.FC<KeywordTableProps> = ({ data }) => {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-white">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Keyword</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vol (Est)</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Difficulty</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">关键词 (Keyword)</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">预估搜索量</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">竞争难度</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">CPC</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Intent</th>
-                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Action</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">搜索意图</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
@@ -127,7 +128,7 @@ const KeywordTable: React.FC<KeywordTableProps> = ({ data }) => {
                   </tr>
                 ))}
                 {keywords.length === 0 && (
-                    <tr><td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-400">No keywords in this tier</td></tr>
+                    <tr><td colSpan={6} className="px-6 py-4 text-center text-sm text-gray-400">该层级暂无关键词</td></tr>
                 )}
               </tbody>
             </table>

@@ -20,6 +20,11 @@ export const generateKeywords = async (seedKeyword: string, language: Language):
       Use Google Search to identify trending terms.
       
       Return a STRICT JSON array of exactly 20 keyword objects.
+      
+      CRITICAL LANGUAGE REQUIREMENT:
+      - The "keyword" field MUST be in ${language} language.
+      - If the target language is NOT English, ensure keywords are native terms used by locals in that region (e.g., if Japanese, use Kanji/Katakana/Hiragana).
+
       Categorize them into 3 Tiers:
       - Tier 1 (Head): High traffic, broad, expensive.
       - Tier 2 (Middle): Specific, medium traffic, good conversion.
@@ -214,6 +219,10 @@ export const generateListingContent = async (description: string, keywords: stri
         Product Description: ${description}
         Target Keywords to Include: ${keywords.join(', ')}
 
+        CRITICAL LANGUAGE REQUIREMENT:
+        - The Output Title and Bullet Points MUST BE written in ${language} language.
+        - Ensure native tone and correct grammar for the target market.
+
         Rules:
         1. Title: 150-200 chars, include brand (generic if none), main function, key features.
         2. Bullets: 5 points. Each starts with a CAPITALIZED HEADER in brackets [LIKE THIS]. 
@@ -249,6 +258,10 @@ export const generateLaunchPlan = async (title: string, description: string, lan
         Key Features: "${description}"
         
         GOAL: Achieve 30-40 organic/ad sales per day by Day 60.
+
+        CRITICAL LANGUAGE REQUIREMENT:
+        - ALL Output (Actions, Focus, Strategy Names, Budget comments) MUST BE in ${language} language.
+        - Exception: Standard industry terms like PPC, CTR, CVR, Vine, ACOS can remain in English or use local equivalents if common.
 
         Requirements for the Plan:
         1.  **NO THEORY.** Give specific, executable tasks.

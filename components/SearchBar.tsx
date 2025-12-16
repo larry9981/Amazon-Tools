@@ -32,18 +32,18 @@ const SearchBar: React.FC<SearchBarProps> = ({ onSearch, isLoading }) => {
           onChange={(e) => setTerm(e.target.value)}
           disabled={isLoading}
           className="block w-full pl-12 pr-4 py-4 bg-white border border-gray-300 rounded-lg leading-5 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amz-orange focus:border-amz-orange transition-shadow shadow-sm sm:text-lg text-gray-900"
-          placeholder="Enter a product name (e.g., 'wireless headphones', 'yoga mat')..."
+          placeholder="输入产品核心词 (例如: '无线耳机', '瑜伽垫', 'coffee maker')..."
         />
         <button
           type="submit"
           disabled={isLoading || !term.trim()}
           className="absolute inset-y-2 right-2 px-6 bg-amz-dark hover:bg-amz-light text-white font-medium rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
         >
-          {isLoading ? 'Researching...' : 'Analyze'}
+          {isLoading ? '分析中...' : '开始分析'}
         </button>
       </form>
       <p className="mt-2 text-sm text-gray-500 text-center">
-        Powered by Gemini AI with Google Search Grounding to simulate market data.
+        由 Gemini AI 驱动，结合谷歌搜索实时数据 (Search Grounding) 进行市场分析。
       </p>
     </div>
   );

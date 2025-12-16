@@ -6,9 +6,10 @@ import KeywordTable from './components/KeywordTable';
 import DashboardStats from './components/DashboardStats';
 import ImageGenerator from './components/ImageGenerator';
 import LaunchPlanner from './components/LaunchPlanner';
-import { ShoppingCart, AlertCircle, Search, Wand2, Rocket, Globe } from 'lucide-react';
+import CustomServices from './components/CustomServices';
+import { ShoppingCart, AlertCircle, Search, Wand2, Rocket, Globe, Briefcase } from 'lucide-react';
 
-type ActiveTab = 'keywords' | 'content' | 'launch';
+type ActiveTab = 'keywords' | 'content' | 'launch' | 'custom';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('keywords');
@@ -47,7 +48,7 @@ const App: React.FC = () => {
       setState(prev => ({
         ...prev,
         isLoading: false,
-        error: err.message || "An unexpected error occurred while fetching data."
+        error: err.message || "获取数据时发生意外错误。"
       }));
     }
   };
@@ -84,9 +85,10 @@ const App: React.FC = () => {
           </div>
           
           <div className="flex items-center gap-2 overflow-x-auto pb-1 sm:pb-0 hide-scrollbar">
-            <TabButton id="keywords" icon={Search} label="Keywords" />
-            <TabButton id="content" icon={Wand2} label="Content Gen" />
-            <TabButton id="launch" icon={Rocket} label="Launch Plan" />
+            <TabButton id="keywords" icon={Search} label="关键词挖掘" />
+            <TabButton id="content" icon={Wand2} label="文案/图片生成" />
+            <TabButton id="launch" icon={Rocket} label="推广计划" />
+            <TabButton id="custom" icon={Briefcase} label="定制服务" />
           </div>
 
           <div className="flex items-center ml-2">
@@ -96,12 +98,12 @@ const App: React.FC = () => {
                 onChange={(e) => setLanguage(e.target.value as Language)}
                 className="bg-amz-light text-white text-xs border-none rounded focus:ring-1 focus:ring-amz-orange py-1 px-2"
              >
-                 <option value="English">English</option>
-                 <option value="Japanese">Japanese</option>
-                 <option value="German">German</option>
-                 <option value="French">French</option>
-                 <option value="Spanish">Spanish</option>
-                 <option value="Italian">Italian</option>
+                 <option value="English">English (英语)</option>
+                 <option value="Japanese">Japanese (日语)</option>
+                 <option value="German">German (德语)</option>
+                 <option value="French">French (法语)</option>
+                 <option value="Spanish">Spanish (西语)</option>
+                 <option value="Italian">Italian (意语)</option>
              </select>
           </div>
         </div>
@@ -115,11 +117,11 @@ const App: React.FC = () => {
             {!state.data.length && !state.isLoading && !state.error && (
             <div className="text-center mb-12 animate-fade-in-up">
                 <h2 className="text-4xl font-extrabold text-gray-900 sm:text-5xl mb-4">
-                Unlock <span className="text-amz-orange">Amazon</span> Potential
+                挖掘 <span className="text-amz-orange">亚马逊</span> 爆款潜力
                 </h2>
                 <p className="mt-3 max-w-2xl mx-auto text-xl text-gray-500 sm:mt-4">
-                Market: <span className="font-bold text-amz-blue">{language}</span>. 
-                Discover Keywords, Generate 2K Images, Optimize Listings, and Plan your Launch.
+                目标市场: <span className="font-bold text-amz-blue">{language}</span>。 
+                挖掘高流量关键词，生成 2K 高清主图，优化 Listing 文案，并制定完美的推品计划。
                 </p>
             </div>
             )}
@@ -167,6 +169,11 @@ const App: React.FC = () => {
                 productContext={productContext}
                 setActiveTab={setActiveTab}
             />
+        </div>
+
+        {/* Custom Services Container */}
+        <div className={activeTab === 'custom' ? 'block' : 'hidden'}>
+            <CustomServices />
         </div>
 
       </main>

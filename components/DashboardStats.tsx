@@ -34,7 +34,7 @@ const DashboardStats: React.FC<DashboardStatsProps> = ({ data, sources }) => {
       <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-200">
         <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
           <Tag className="w-5 h-5 mr-2 text-amz-blue" />
-          Volume vs. Competition (Top 8)
+          搜索量 vs. 竞争度 (前8名)
         </h3>
         <div className="h-[300px] w-full">
           <ResponsiveContainer width="100%" height="100%">
@@ -65,23 +65,23 @@ const DashboardStats: React.FC<DashboardStatsProps> = ({ data, sources }) => {
           </ResponsiveContainer>
         </div>
         <div className="mt-4 flex justify-center gap-6 text-sm text-gray-600">
-          <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-green-400 mr-2"></span>Low Comp</div>
-          <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-yellow-400 mr-2"></span>Med Comp</div>
-          <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-red-400 mr-2"></span>High Comp</div>
+          <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-green-400 mr-2"></span>低竞争 (Low)</div>
+          <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-yellow-400 mr-2"></span>中等 (Med)</div>
+          <div className="flex items-center"><span className="w-3 h-3 rounded-full bg-red-400 mr-2"></span>高竞争 (High)</div>
         </div>
       </div>
 
       {/* Summary Stats & Sources */}
       <div className="flex flex-col gap-6">
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 flex-1">
-          <h3 className="text-lg font-bold text-gray-800 mb-4">Quick Insights</h3>
+          <h3 className="text-lg font-bold text-gray-800 mb-4">快速市场洞察</h3>
           <div className="space-y-4">
             <div className="p-4 bg-blue-50 rounded-lg">
-              <p className="text-sm text-blue-600 font-medium">Avg. Estimated CPC</p>
+              <p className="text-sm text-blue-600 font-medium">平均预估 CPC</p>
               <p className="text-2xl font-bold text-amz-blue">${avgCpc.toFixed(2)}</p>
             </div>
             <div className="p-4 bg-orange-50 rounded-lg">
-              <p className="text-sm text-orange-600 font-medium">High Competition Keywords</p>
+              <p className="text-sm text-orange-600 font-medium">高竞争关键词数量</p>
               <p className="text-2xl font-bold text-amz-orange">{highCompCount} <span className="text-sm font-normal text-gray-500">/ {data.length}</span></p>
             </div>
           </div>
@@ -89,7 +89,7 @@ const DashboardStats: React.FC<DashboardStatsProps> = ({ data, sources }) => {
 
         {sources.length > 0 && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-             <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">Data Sources (Search Grounding)</h3>
+             <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-3">数据来源 (Search Grounding)</h3>
              <ul className="space-y-2">
                {sources.slice(0, 3).map((source, idx) => (
                  <li key={idx}>
@@ -104,7 +104,7 @@ const DashboardStats: React.FC<DashboardStatsProps> = ({ data, sources }) => {
                  </li>
                ))}
                {sources.length > 3 && (
-                 <li className="text-xs text-gray-400 italic">...and {sources.length - 3} more</li>
+                 <li className="text-xs text-gray-400 italic">...以及其他 {sources.length - 3} 个来源</li>
                )}
              </ul>
           </div>

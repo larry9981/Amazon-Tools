@@ -3,14 +3,15 @@ import { Upload, Image as ImageIcon, Sparkles, Download, RefreshCw, X, Maximize2
 import { generateAplusImages, regenerateSingleImage, generateListingContent, generateMarketingVideo } from '../services/geminiService';
 import { ImageGeneratorState, Language, ListingContent } from '../types';
 
-const SCENE_LABELS = [
-  "Hero Shot (Studio)",
-  "Cozy Home Lifestyle",
-  "Outdoor / Action",
-  "Minimalist / Modern",
-  "Tabletop Context",
-  "Detailed Close-up",
-  "Gift / Unboxing"
+// Translated labels for UI display only
+const SCENE_LABELS_CN = [
+  "主图 (Hero Shot)",
+  "家居生活场景",
+  "户外/运动场景",
+  "极简/现代风格",
+  "桌面展示场景",
+  "细节特写 (Macro)",
+  "礼品/开箱场景"
 ];
 
 interface ImageGeneratorProps {
@@ -29,7 +30,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
     description: '',
     uploadedImage: null,
     mimeType: 'image/png',
-    generatedImages: SCENE_LABELS.map((label, idx) => ({ 
+    generatedImages: SCENE_LABELS_CN.map((label, idx) => ({ 
       id: idx + 1, 
       label, 
       imageUrl: null, 
@@ -58,7 +59,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-         setState(prev => ({ ...prev, error: "Image size too large. Please upload an image under 5MB." }));
+         setState(prev => ({ ...prev, error: "图片大小超过限制，请上传 5MB 以内的图片。" }));
          return;
       }
       const reader = new FileReader();
@@ -111,7 +112,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
 
       // Initialize prompts if empty
       const initialPrompts: {[key:number]: string} = {};
-      SCENE_LABELS.forEach((label, idx) => {
+      SCENE_LABELS_CN.forEach((label, idx) => {
           initialPrompts[idx + 1] = label;
       });
       setCustomPrompts(initialPrompts);
@@ -121,7 +122,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
       setState(prev => ({
         ...prev,
         isGenerating: false,
-        error: "Failed to generate content. Please try again.",
+        error: "生成内容失败，请重试。",
         generatedImages: prev.generatedImages.map(img => ({ ...img, isLoading: false }))
       }));
     }
@@ -129,7 +130,10 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
 
   const handleRegenerateSingle = async (id: number) => {
       if (!state.uploadedImage) return;
-      const promptToUse = customPrompts[id] || SCENE_LABELS[id-1];
+      // If user hasn't typed a custom prompt, default to the label. 
+      // Note: For real effect, the backend uses English prompts mapped by ID. 
+      // Here we just pass the custom text if provided.
+      const promptToUse = customPrompts[id] || SCENE_LABELS_CN[id-1];
       
       setState(prev => ({
           ...prev,
@@ -143,7 +147,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
             generatedImages: prev.generatedImages.map(img => img.id === id ? { ...img, isLoading: false, imageUrl: newUrl } : img)
         }));
       } catch (err) {
-        alert("Failed to regenerate image.");
+        alert("重新生成图片失败。");
         setState(prev => ({
             ...prev,
             generatedImages: prev.generatedImages.map(img => img.id === id ? { ...img, isLoading: false } : img)
@@ -168,7 +172,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
           setVideoState(prev => ({ ...prev, isGenerating: false, videoUrl: uri }));
       } catch (err: any) {
           console.error(err);
-          setVideoState(prev => ({ ...prev, isGenerating: false, error: "Failed to generate video. Ensure you have a paid plan selected." }));
+          setVideoState(prev => ({ ...prev, isGenerating: false, error: "视频生成失败。请确保您使用了付费 API Key。" }));
       }
   };
 
@@ -193,7 +197,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
               </button>
               <img src={lightboxImage} alt="Full Resolution" className="max-w-full max-h-screen object-contain" />
               <div className="absolute bottom-4 left-0 right-0 text-center text-white text-sm bg-black bg-opacity-50 py-2">
-                  2K Ultra-Sharp Preview
+                  2K 超清预览
               </div>
           </div>
       )}
@@ -201,7 +205,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
       <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
         <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
           <Sparkles className="w-5 h-5 text-amz-orange mr-2" />
-          Amazon Content Generator
+          亚马逊内容生成器
         </h2>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -209,15 +213,15 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
             <div className="md:col-span-1 space-y-6">
                 {/* Image Upload */}
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">1. Upload Product Image</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">1. 上传产品图片 (白底图最佳)</label>
                     {!state.uploadedImage ? (
                         <div 
                             onClick={() => fileInputRef.current?.click()}
                             className="border-2 border-dashed border-gray-300 rounded-lg p-8 flex flex-col items-center justify-center cursor-pointer hover:border-amz-orange hover:bg-orange-50 transition-colors h-48"
                         >
                             <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                            <p className="text-sm text-gray-500 font-medium">Click to upload</p>
-                            <p className="text-xs text-gray-400 mt-1">PNG, JPG up to 5MB</p>
+                            <p className="text-sm text-gray-500 font-medium">点击上传图片</p>
+                            <p className="text-xs text-gray-400 mt-1">支持 PNG, JPG (最大 5MB)</p>
                         </div>
                     ) : (
                         <div className="relative rounded-lg overflow-hidden border border-gray-200 h-48 bg-gray-50 flex items-center justify-center">
@@ -242,15 +246,15 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
 
                 {/* Description Input */}
                 <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">2. Description ({language})</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">2. 产品描述 ({language})</label>
                     <textarea
                         value={state.description}
                         onChange={(e) => setState(prev => ({ ...prev, description: e.target.value }))}
                         className="w-full h-40 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amz-orange focus:border-amz-orange sm:text-sm"
-                        placeholder="Enter product details, material, dimensions, and key features..."
+                        placeholder="输入产品详细信息，材质，尺寸，核心卖点..."
                     />
                     <p className="text-xs text-gray-400 mt-1">
-                        We will use this to generate the listing text, plan the launch, and create images.
+                        我们将利用这些信息生成 Listing 文案，策划推广方案，并生成场景图。
                     </p>
                 </div>
 
@@ -263,12 +267,12 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
                     {state.isGenerating ? (
                         <>
                            <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                           Generating Content...
+                           内容生成中...
                         </>
                     ) : (
                         <>
                             <Sparkles className="w-4 h-4 mr-2" />
-                            Generate Listing & Images
+                            一键生成 文案 & 图片
                         </>
                     )}
                 </button>
@@ -282,18 +286,18 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
                  <div className="animate-fade-in-up">
                          <div className="flex items-center mb-4">
                             <FileText className="w-5 h-5 text-amz-blue mr-2" />
-                            <h3 className="font-bold text-gray-800">Optimized Listing</h3>
+                            <h3 className="font-bold text-gray-800">SEO 优化 Listing 文案 ({language})</h3>
                          </div>
                          
                          {/* Title */}
                          <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-4 group relative">
-                             <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Product Title</label>
+                             <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">产品标题 (Title)</label>
                              <textarea 
                                 value={listing?.title || ""}
                                 onChange={(e) => handleTitleChange(e.target.value)}
                                 className="w-full bg-transparent border-none focus:ring-0 p-0 text-sm font-medium text-gray-900 resize-none placeholder-gray-300"
                                 rows={2}
-                                placeholder="Generated Title will appear here..."
+                                placeholder="生成的标题将显示在这里..."
                              />
                              {listing && (
                                 <button onClick={() => navigator.clipboard.writeText(listing.title)} className="absolute top-2 right-2 p-1.5 bg-white border rounded shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-100">
@@ -312,7 +316,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
                                         onChange={(e) => handleBulletChange(idx, e.target.value)}
                                         className="w-full pl-6 bg-transparent border-none focus:ring-0 p-0 text-sm text-gray-700 resize-none placeholder-gray-300 min-h-[80px]"
                                         rows={4}
-                                        placeholder={`Bullet point ${idx + 1} will appear here (approx 150+ chars)...`}
+                                        placeholder={`卖点 ${idx + 1} 将显示在这里 (约 150+ 字符)...`}
                                     />
                                     {listing?.bullets[idx] && (
                                         <button onClick={() => navigator.clipboard.writeText(listing.bullets[idx])} className="absolute top-2 right-2 p-1.5 bg-white border rounded shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-100">
@@ -329,7 +333,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
                     <div className="flex justify-between items-center mb-4 pt-4 border-t border-gray-100">
                         <div className="flex items-center">
                             <ImageIcon className="w-5 h-5 text-amz-blue mr-2" />
-                            <h3 className="font-bold text-gray-800">A+ Content (2K Sharp)</h3>
+                            <h3 className="font-bold text-gray-800">A+ 场景图 (2K 高清)</h3>
                         </div>
                     </div>
                     
@@ -341,7 +345,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
                                     {img.isLoading && (
                                         <div className="absolute inset-0 z-20 bg-white bg-opacity-90 flex flex-col items-center justify-center text-gray-400">
                                             <RefreshCw className="w-6 h-6 animate-spin mb-2 text-amz-orange" />
-                                            <span className="text-xs">Processing...</span>
+                                            <span className="text-xs">处理中...</span>
                                         </div>
                                     )}
 
@@ -366,7 +370,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
                                     ) : (
                                         <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-300">
                                             <ImageIcon className="w-8 h-8 mb-2" />
-                                            <span className="text-xs text-center px-4">Waiting</span>
+                                            <span className="text-xs text-center px-4">等待生成</span>
                                         </div>
                                     )}
                                 </div>
@@ -378,14 +382,14 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
                                         onChange={(e) => setCustomPrompts(prev => ({...prev, [img.id]: e.target.value}))}
                                         className="w-full text-xs p-2 border border-gray-200 rounded resize-none focus:border-amz-orange focus:ring-1 focus:ring-amz-orange"
                                         rows={2}
-                                        placeholder="Enter prompt..."
+                                        placeholder="输入修改提示词..."
                                     />
                                     <button 
                                         onClick={() => handleRegenerateSingle(img.id)}
                                         disabled={img.isLoading || !state.uploadedImage}
                                         className="w-full text-xs py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded font-medium flex items-center justify-center disabled:opacity-50"
                                     >
-                                        <RefreshCw className="w-3 h-3 mr-1" /> Regenerate
+                                        <RefreshCw className="w-3 h-3 mr-1" /> 重新生成
                                     </button>
                                 </div>
                             </div>
@@ -397,14 +401,14 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
                  <div className="pt-6 border-t border-gray-200">
                     <div className="flex items-center mb-4">
                         <Video className="w-5 h-5 text-purple-600 mr-2" />
-                        <h3 className="font-bold text-gray-800">Video Studio (Beta)</h3>
+                        <h3 className="font-bold text-gray-800">视频工作室 (Beta)</h3>
                     </div>
                     
                     <div className="bg-purple-50 rounded-xl p-6 border border-purple-100">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
                             <div className="space-y-4">
                                 <div>
-                                    <label className="text-sm font-medium text-gray-700 mb-1 block">Video Prompt</label>
+                                    <label className="text-sm font-medium text-gray-700 mb-1 block">视频提示词 (Video Prompt)</label>
                                     <textarea
                                         value={videoState.prompt}
                                         onChange={(e) => setVideoState(prev => ({...prev, prompt: e.target.value}))}
@@ -418,17 +422,17 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
                                     className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold flex items-center shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {videoState.isGenerating ? <RefreshCw className="animate-spin w-4 h-4 mr-2" /> : <PlayCircle className="w-4 h-4 mr-2" />}
-                                    Generate Marketing Video
+                                    生成营销视频
                                 </button>
                                 {videoState.error && <p className="text-sm text-red-600">{videoState.error}</p>}
-                                <p className="text-xs text-gray-500">Requires a main image to be uploaded first. Generates a 720p 16:9 video.</p>
+                                <p className="text-xs text-gray-500">需要先上传主图。生成 720p 16:9 视频 (Veo Model)。</p>
                             </div>
                             
                             <div className="aspect-video bg-black rounded-lg overflow-hidden flex items-center justify-center relative shadow-lg">
                                 {videoState.isGenerating ? (
                                     <div className="text-white flex flex-col items-center">
                                         <RefreshCw className="animate-spin w-8 h-8 mb-2" />
-                                        <span className="text-sm">Creating Video...</span>
+                                        <span className="text-sm">视频生成中...</span>
                                     </div>
                                 ) : videoState.videoUrl ? (
                                     <video 
@@ -441,7 +445,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
                                 ) : (
                                     <div className="text-gray-500 flex flex-col items-center">
                                         <Video className="w-12 h-12 mb-2 opacity-30" />
-                                        <span className="text-sm">No video generated yet</span>
+                                        <span className="text-sm">暂无视频</span>
                                     </div>
                                 )}
                             </div>
