@@ -1,8 +1,10 @@
-import { GoogleGenAI } from "@google/genai";
+
+import { GoogleGenAI, VideoGenerationReferenceType } from "@google/genai";
 import { KeywordData, GroundingSource, ListingContent, LaunchDayPlan, AdStrategyNode, Language } from "../types";
 
-// Initialize the Gemini API client
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 interface AnalysisResult {
   keywords: KeywordData[];
@@ -11,7 +13,7 @@ interface AnalysisResult {
 
 export const generateKeywords = async (seedKeyword: string, language: Language): Promise<AnalysisResult> => {
   try {
-    const model = 'gemini-2.5-flash';
+    const model = 'gemini-3-flash-preview';
     
     const prompt = `
       Act as an expert Amazon SEO analyst for the ${language} market. 
@@ -23,7 +25,7 @@ export const generateKeywords = async (seedKeyword: string, language: Language):
       
       CRITICAL LANGUAGE REQUIREMENT:
       - The "keyword" field MUST be in ${language} language.
-      - If the target language is NOT English, ensure keywords are native terms used by locals in that region (e.g., if Japanese, use Kanji/Katakana/Hiragana).
+      - If the target language is NOT English, ensure keywords are native terms used by locals in that region.
 
       Categorize them into 3 Tiers:
       - Tier 1 (Head): High traffic, broad, expensive.
@@ -51,7 +53,6 @@ export const generateKeywords = async (seedKeyword: string, language: Language):
     });
 
     const text = response.text || "[]";
-    
     const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const sources: GroundingSource[] = chunks
       .map((chunk: any) => {
@@ -79,157 +80,119 @@ export const generateKeywords = async (seedKeyword: string, language: Language):
       keywords: parsedKeywords,
       sources: sources
     };
-
   } catch (error) {
     console.error("Gemini API Error:", error);
     throw error;
   }
 };
 
-// --- A+ Image Generation Service (Auto Fallback) ---
+// --- Image Generation Services ---
 
-const SCENES = [
-  { id: 1, label: "Hero Shot (Studio)", promptSuffix: "A high-end, clean studio hero shot of the product on a white podium. Professional lighting, f/8 aperture for full sharpness." },
-  { id: 2, label: "Cozy Home Lifestyle", promptSuffix: "A warm, inviting lifestyle shot in a modern living room. Sharp product focus with soft bokeh background." },
-  { id: 3, label: "Outdoor / Action", promptSuffix: "Energetic outdoor shot, natural sunlight. High shutter speed to freeze motion, razor-sharp details." },
-  { id: 4, label: "Minimalist / Modern", promptSuffix: "Minimalist aesthetic, pastel geometric background. High fashion style, ultra-clean edges." },
-  { id: 5, label: "Tabletop Context", promptSuffix: "Wooden table or kitchen counter setting. Props in background, product in sharp focus with detailed texture." },
-  { id: 6, label: "Detailed Close-up", promptSuffix: "Macro close-up shot highlighting material quality and texture. Micro-details visible, professional product photography." },
-  { id: 7, label: "Gift / Unboxing", promptSuffix: "Product presented as a gift with ribbon/packaging. Warm lighting, sharp focus on the brand logo/product." },
-];
-
-// Helper to handle model fallback
-async function generateImageWithFallback(base64Image: string, mimeType: string, prompt: string): Promise<string> {
-    
-    // ENHANCED PROMPT FOR SHARPNESS
+async function generateImageWithRetry(base64Image: string, mimeType: string, prompt: string, isWide: boolean = false, retries = 2): Promise<string> {
     const enhancedPrompt = `
         ${prompt}
-        
         CRITICAL VISUAL REQUIREMENTS:
-        - Image MUST be 8k resolution, Ultra HD quality.
-        - Razor-sharp focus on the product (no blur on the main item).
-        - Use professional studio lighting (hard rim lighting to define edges).
-        - Emphasize texture and material details (micro-texture visibility).
-        - Color grading: Commercial, vibrant, and high contrast.
-        - Look like a photograph taken with a 100mm Macro lens at f/8.
+        - Image MUST be ultra-high quality, commercial grade photography.
+        - Razor-sharp focus on the main product.
+        - Professional studio lighting.
+        - Color grading: Vibrant and high contrast.
+        ${isWide ? "- Format: Wide panoramic cinematic shot, 2.5:1 ratio feel." : "- Format: Standard product shot."}
     `;
 
-    // 1. Try High Quality Model (Gemini 3 Pro - 2K)
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-image-preview',
+    const runCall = async (modelName: string, config: any) => {
+        const genAI = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        return await genAI.models.generateContent({
+            model: modelName,
             contents: {
                 parts: [
                     { inlineData: { data: base64Image, mimeType } },
                     { text: enhancedPrompt },
                 ],
             },
-            config: {
-                imageConfig: { aspectRatio: "1:1", imageSize: "2K" }
-            }
+            config
         });
-        
-        const imageUrl = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
-        if (imageUrl) return `data:image/png;base64,${imageUrl}`;
-    } catch (error: any) {
-        console.warn("Gemini 3 Pro failed (likely permission/quota), falling back to Flash Image.", error);
-    }
+    };
 
-    // 2. Fallback to Standard Model (Gemini 2.5 Flash Image)
-    try {
-        const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash-image',
-            contents: {
-                parts: [
-                    { inlineData: { data: base64Image, mimeType } },
-                    { text: enhancedPrompt },
-                ],
-            },
-            config: {
-                imageConfig: { aspectRatio: "1:1" }
+    for (let i = 0; i <= retries; i++) {
+        try {
+            // Priority: Gemini 3 Pro
+            try {
+                const response = await runCall('gemini-3-pro-image-preview', {
+                    imageConfig: { aspectRatio: isWide ? "16:9" : "1:1", imageSize: "2K" }
+                });
+                const imageUrl = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+                if (imageUrl) return `data:image/png;base64,${imageUrl}`;
+            } catch (error: any) {
+                if (error?.message?.includes('429') || error?.message?.includes('RESOURCE_EXHAUSTED')) {
+                    throw error; // Let the outer retry loop handle 429s
+                }
+                // If other error, try fallback immediately
+                const fallbackResponse = await runCall('gemini-2.5-flash-image', {
+                    imageConfig: { aspectRatio: isWide ? "16:9" : "1:1" }
+                });
+                const imageUrl = fallbackResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+                if (imageUrl) return `data:image/png;base64,${imageUrl}`;
             }
-        });
-
-        const imageUrl = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
-        if (imageUrl) return `data:image/png;base64,${imageUrl}`;
-    } catch (fallbackError) {
-        console.error("All image generation models failed.", fallbackError);
-        throw fallbackError;
+        } catch (error: any) {
+            if (i === retries) throw error;
+            const waitTime = Math.pow(2, i) * 2000; // Exponential backoff
+            console.warn(`Rate limited. Retrying in ${waitTime}ms...`);
+            await delay(waitTime);
+        }
     }
-
-    throw new Error("No image generated.");
+    throw new Error("Failed to generate image after retries.");
 }
 
-export const generateAplusImages = async (
+export const generateSceneImages = async (
   base64Image: string,
   mimeType: string,
   productDescription: string,
+  scenes: { id: number; promptSuffix: string }[],
+  isWide: boolean = false,
   customPromptOverrides: { [key: number]: string } = {}
 ): Promise<{ id: number; imageUrl: string }[]> => {
-  
-  const promises = SCENES.map(async (scene) => {
-    // Skip if we are regenerating specific IDs and this one isn't included
+  const results: { id: number; imageUrl: string }[] = [];
+
+  // Sequential execution to avoid hitting rate limits with Promise.all
+  for (const scene of scenes) {
     const isSpecificRegen = Object.keys(customPromptOverrides).length > 0;
     if (isSpecificRegen && !customPromptOverrides[scene.id]) {
-        return { id: scene.id, imageUrl: "" };
+        results.push({ id: scene.id, imageUrl: "" });
+        continue;
     }
 
     const specificInstruction = customPromptOverrides[scene.id] || scene.promptSuffix;
     const prompt = `
-        Generate a photorealistic, high-quality Amazon A+ content image.
-        Product Description: ${productDescription}
+        Product: ${productDescription}
         Scene Requirement: ${specificInstruction}
-        The image MUST feature the product visually similar to the input image provided. 
+        The image MUST feature the product visually consistent with the input image.
     `;
 
     try {
-      const imageUrl = await generateImageWithFallback(base64Image, mimeType, prompt);
-      return { id: scene.id, imageUrl };
+      const imageUrl = await generateImageWithRetry(base64Image, mimeType, prompt, isWide);
+      results.push({ id: scene.id, imageUrl });
+      // Small pause between images in a batch to respect quota
+      if (scenes.length > 1) await delay(1000);
     } catch (error) {
       console.error(`Error generating scene ${scene.id}:`, error);
-      return { id: scene.id, imageUrl: "" };
+      results.push({ id: scene.id, imageUrl: "" });
     }
-  });
+  }
 
-  return Promise.all(promises);
+  return results;
 };
-
-export const regenerateSingleImage = async (
-    id: number,
-    base64Image: string, 
-    mimeType: string, 
-    productDescription: string, 
-    customPrompt: string
-): Promise<string> => {
-    const results = await generateAplusImages(base64Image, mimeType, productDescription, { [id]: customPrompt });
-    const found = results.find(r => r.id === id);
-    if (found && found.imageUrl) return found.imageUrl;
-    throw new Error("Failed to regenerate image");
-};
-
 
 // --- Listing Optimization Service ---
 
 export const generateListingContent = async (description: string, keywords: string[], language: Language): Promise<ListingContent> => {
-    const model = 'gemini-2.5-flash';
+    const model = 'gemini-3-flash-preview';
     const prompt = `
         Act as a professional Amazon Copywriter for the ${language} market.
-        Write an optimized Product Title and 5 Bullet Points based on the description below.
-        
+        Write an optimized Product Title and 5 Bullet Points.
         Product Description: ${description}
-        Target Keywords to Include: ${keywords.join(', ')}
-
-        CRITICAL LANGUAGE REQUIREMENT:
-        - The Output Title and Bullet Points MUST BE written in ${language} language.
-        - Ensure native tone and correct grammar for the target market.
-
-        Rules:
-        1. Title: 150-200 chars, include brand (generic if none), main function, key features.
-        2. Bullets: 5 points. Each starts with a CAPITALIZED HEADER in brackets [LIKE THIS]. 
-           - Insert keywords naturally.
-           - Focus on benefits, not just features.
-           - IMPORTANT: Each bullet point MUST be at least 150 characters long. Provide detailed, persuasive explanations for each point.
-        
+        Target Keywords: ${keywords.join(', ')}
+        CRITICAL LANGUAGE: Output MUST be in ${language}.
+        Bullets MUST be at least 150 characters long each.
         Return STRICT JSON:
         {
             "title": "string",
@@ -246,61 +209,18 @@ export const generateListingContent = async (description: string, keywords: stri
     return JSON.parse(response.text);
 };
 
-
 // --- Launch Plan & Ad Strategy Service ---
 
 export const generateLaunchPlan = async (title: string, description: string, language: Language): Promise<{ plan: LaunchDayPlan[], adStrategy: AdStrategyNode }> => {
     const model = 'gemini-3-pro-preview'; 
     const prompt = `
-        You are an expert Amazon Brand Manager. Create a STRICT, ACTIONABLE 60-Day Product Launch Plan for the following product in the ${language} market.
-
-        Product Title: "${title}"
-        Key Features: "${description}"
-        
-        GOAL: Achieve 30-40 organic/ad sales per day by Day 60.
-
-        CRITICAL LANGUAGE REQUIREMENT:
-        - ALL Output (Actions, Focus, Strategy Names, Budget comments) MUST BE in ${language} language.
-        - Exception: Standard industry terms like PPC, CTR, CVR, Vine, ACOS can remain in English or use local equivalents if common.
-
-        Requirements for the Plan:
-        1.  **NO THEORY.** Give specific, executable tasks.
-        2.  **Breakdown by phases:** Days 1-7, 8-14, 15-30, 31-45, 46-60.
-        3.  **Metrics:** You MUST calculate specific targets for Traffic (Impressions), Click-Through Rate (CTR), and Conversion Rate (CVR) to hit the sales goal. 
-            (Example logic: 40 sales / 10% CVR = 400 clicks. 400 clicks / 0.5% CTR = 80,000 Impressions).
-        4.  **Cover:** 
-            - Vine Voice / Reviews acquisition.
-            - PPC Strategy (Auto -> Broad -> Exact).
-            - Coupon / Price Strategy.
-            - External Traffic (if needed).
-
-        Part 2: 3-Month PPC Ad Architecture (Mind Map Structure)
-        Create a hierarchical structure for Amazon PPC Campaigns (Sponsored Products, Brands, Display).
-        
+        Expert Amazon Brand Manager. Create a STRICT 60-Day Launch Plan for ${language} market.
+        Title: "${title}"
+        Description: "${description}"
         Return STRICT JSON format:
         {
-            "plan": [
-                {
-                    "dayRange": "Days 1-7 (Launch Phase)",
-                    "focus": "Indexing & Vine Reviews",
-                    "actions": ["Enroll in Vine (30 units)", "Setup Auto Campaign ($30/day, Fixed Bids)", "Price: $19.99 (Break-even)"],
-                    "budget": "$30-50/day",
-                    "metrics": ["Target: 1000 Impressions/day", "Goal: 2-3 sales/day"]
-                },
-                ... (continue until Day 60)
-            ],
-            "adStrategy": {
-                "name": "Total PPC Account Strategy",
-                "budget": "Total Monthly Budget Est.",
-                "children": [
-                    {
-                        "name": "SP - Automatic",
-                        "budget": "30%",
-                        "children": [ ... ]
-                    },
-                    ...
-                ]
-            }
+            "plan": [ { "dayRange": "...", "focus": "...", "actions": ["..."], "budget": "...", "metrics": ["..."] } ],
+            "adStrategy": { "name": "...", "budget": "...", "children": [ ... ] }
         }
     `;
 
@@ -317,41 +237,52 @@ export const generateLaunchPlan = async (title: string, description: string, lan
 
 export const generateMarketingVideo = async (
     prompt: string,
-    base64Image: string,
-    mimeType: string
+    refImages: { data: string; mimeType: string }[] = []
 ): Promise<string> => {
-    const model = 'veo-3.1-fast-generate-preview';
+    let model = 'veo-3.1-fast-generate-preview';
+    if (refImages.length > 1) {
+        model = 'veo-3.1-generate-preview';
+    }
     
     try {
-        let operation = await ai.models.generateVideos({
+        const payload: any = {
             model,
             prompt,
-            image: {
-                imageBytes: base64Image,
-                mimeType: mimeType
-            },
             config: {
                 numberOfVideos: 1,
                 resolution: '720p',
                 aspectRatio: '16:9'
             }
-        });
+        };
 
-        // Poll for completion
-        while (!operation.done) {
-            await new Promise(resolve => setTimeout(resolve, 5000)); // Poll every 5s
-            operation = await ai.operations.getVideosOperation({ operation: operation });
+        if (refImages.length === 1) {
+            payload.image = {
+                imageBytes: refImages[0].data,
+                mimeType: refImages[0].mimeType
+            };
+        } else if (refImages.length > 1) {
+            payload.config.referenceImages = refImages.map(img => ({
+                image: {
+                    imageBytes: img.data,
+                    mimeType: img.mimeType
+                },
+                referenceType: VideoGenerationReferenceType.ASSET
+            }));
         }
 
+        const genAI = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        let operation = await genAI.models.generateVideos(payload);
+        
+        while (!operation.done) {
+            await new Promise(resolve => setTimeout(resolve, 10000));
+            operation = await genAI.operations.getVideosOperation({ operation: operation });
+        }
+        
         const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-        if (!downloadLink) throw new Error("Video generation failed: No download link returned.");
-
+        if (!downloadLink) throw new Error("Video generation failed.");
         return downloadLink;
     } catch (error: any) {
         console.error("Veo Video Gen Failed:", error);
-        if (error.message.includes('permission') || error.message.includes('403')) {
-             throw new Error("Permission Denied: Veo Video generation requires a paid billing account enabled for this API Key.");
-        }
         throw error;
     }
 };

@@ -1,76 +1,62 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Image as ImageIcon, Sparkles, Download, RefreshCw, X, Maximize2, Edit2, Copy, FileText, Check, Video, PlayCircle } from 'lucide-react';
-import { generateAplusImages, regenerateSingleImage, generateListingContent, generateMarketingVideo } from '../services/geminiService';
+
+import React, { useState, useRef } from 'react';
+import { Upload, Image as ImageIcon, Sparkles, Download, RefreshCw, X, Maximize2, FileText, Copy, ListFilter, Trash2, CheckCircle } from 'lucide-react';
+import { generateSceneImages, generateListingContent } from '../services/geminiService';
 import { ImageGeneratorState, Language, ListingContent } from '../types';
 
-// Translated labels for UI display only
-const SCENE_LABELS_CN = [
-  "主图 (Hero Shot)",
-  "家居生活场景",
-  "户外/运动场景",
-  "极简/现代风格",
-  "桌面展示场景",
-  "细节特写 (Macro)",
-  "礼品/开箱场景"
+const MAIN_IMAGE_SCENES = [
+  { id: 1, label: "白底英雄图", promptSuffix: "Studio hero shot of the product on pure white background, center composition, high contrast." },
+  { id: 2, label: "场景展示图 1", promptSuffix: "Product in a clean, high-end living room environment, warm ambient light, sharp focus." },
+  { id: 3, label: "场景展示图 2", promptSuffix: "Product in use by a person, lifestyle photography, natural morning light." },
+  { id: 4, label: "多角度展示", promptSuffix: "Two products showing different angles, clean minimal background." },
+  { id: 5, label: "礼物/包装展示", promptSuffix: "Product with premium gift wrapping next to it, festive atmosphere." },
+  { id: 6, label: "细节特写图", promptSuffix: "Extreme macro shot of the product material and texture, blurred background." }
+];
+
+const APLUS_IMAGE_SCENES = [
+  { id: 101, label: "A+ 顶部长图 (Banner)", promptSuffix: "A panoramic cinematic wide shot of the product brand story, professional lighting, room for text on left." },
+  { id: 102, label: "功能解析 1", promptSuffix: "Product technical structure view, minimalist gray background, sharp details." },
+  { id: 103, label: "功能解析 2", promptSuffix: "Product durability/quality demonstration, close up macro." },
+  { id: 104, label: "使用场景 A", promptSuffix: "Wide shot showing the product in a professional kitchen or workspace." },
+  { id: 105, label: "使用场景 B", promptSuffix: "Outdoor lifestyle wide shot, sunrise lighting, energetic feel." },
+  { id: 106, label: "对比展示", promptSuffix: "Clean divided shot, showing before and after or product vs environment." },
+  { id: 107, label: "品牌底图", promptSuffix: "Artistic abstract shot of the product material, very high resolution, 2928x1200 style." }
 ];
 
 interface ImageGeneratorProps {
     language: Language;
     seedKeywords: string[];
-    onListingGenerated: (title: string, description: string) => void;
+    onListingGenerated: (title: string, description: string, uploadedImage: string | null, mimeType: string) => void;
 }
 
 const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords, onListingGenerated }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // State for Images
   const [state, setState] = useState<ImageGeneratorState>({
     isGenerating: false,
     error: null,
     description: '',
     uploadedImage: null,
     mimeType: 'image/png',
-    generatedImages: SCENE_LABELS_CN.map((label, idx) => ({ 
-      id: idx + 1, 
-      label, 
-      imageUrl: null, 
-      isLoading: false 
-    }))
+    mainImages: MAIN_IMAGE_SCENES.map(s => ({ id: s.id, label: s.label, imageUrl: null, isLoading: false })),
+    aplusImages: APLUS_IMAGE_SCENES.map(s => ({ id: s.id, label: s.label, imageUrl: null, isLoading: false }))
   });
 
-  // State for Listing
   const [listing, setListing] = useState<ListingContent | null>(null);
-
-  // State for Image Prompts (Individual)
   const [customPrompts, setCustomPrompts] = useState<{ [key: number]: string }>({});
-
-  // Lightbox
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
-
-  // Video Generation State
-  const [videoState, setVideoState] = useState<{ isGenerating: boolean; videoUrl: string | null; error: string | null; prompt: string }>({
-      isGenerating: false,
-      videoUrl: null,
-      error: null,
-      prompt: "Cinematic product showcase, high quality, professional lighting, slow motion movement."
-  });
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-         setState(prev => ({ ...prev, error: "图片大小超过限制，请上传 5MB 以内的图片。" }));
+         setState(prev => ({ ...prev, error: "图片超过 5MB。" }));
          return;
       }
       const reader = new FileReader();
       reader.onloadend = () => {
         const base64String = (reader.result as string).split(',')[1];
-        setState(prev => ({
-          ...prev,
-          uploadedImage: base64String,
-          mimeType: file.type,
-          error: null
-        }));
+        setState(prev => ({ ...prev, uploadedImage: base64String, mimeType: file.type, error: null }));
       };
       reader.readAsDataURL(file);
     }
@@ -82,382 +68,337 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
     setState(prev => ({
       ...prev,
       isGenerating: true,
-      error: null,
-      generatedImages: prev.generatedImages.map(img => ({ ...img, isLoading: true, imageUrl: null }))
+      mainImages: prev.mainImages.map(img => ({ ...img, isLoading: true })),
+      aplusImages: prev.aplusImages.map(img => ({ ...img, isLoading: true }))
     }));
-    setListing(null);
 
     try {
-      // Run both tasks in parallel
-      const [imageResults, listingResult] = await Promise.all([
-        generateAplusImages(state.uploadedImage, state.mimeType, state.description),
-        generateListingContent(state.description, seedKeywords.slice(0, 8), language)
-      ]);
-      
-      // Update Image State
+      // 1. Generate Listing First (Text is fast and has different quota)
+      const listingRes = await generateListingContent(state.description, seedKeywords, language);
+      setListing(listingRes);
+      onListingGenerated(listingRes.title, state.description, state.uploadedImage, state.mimeType);
+
+      // 2. Generate Main Images (Sequential inside service)
+      const mainRes = await generateSceneImages(state.uploadedImage, state.mimeType, state.description, MAIN_IMAGE_SCENES, false);
       setState(prev => ({
         ...prev,
-        isGenerating: false,
-        generatedImages: prev.generatedImages.map(img => {
-            const found = imageResults.find(r => r.id === img.id);
-            return { ...img, isLoading: false, imageUrl: found?.imageUrl || null };
-        })
+        mainImages: prev.mainImages.map(img => ({ 
+            ...img, 
+            isLoading: false, 
+            imageUrl: mainRes.find(r => r.id === img.id)?.imageUrl || img.imageUrl 
+        }))
       }));
 
-      // Update Listing State
-      setListing(listingResult);
-      
-      // Share data with App (for Launch Plan)
-      onListingGenerated(listingResult.title, state.description);
-
-      // Initialize prompts if empty
-      const initialPrompts: {[key:number]: string} = {};
-      SCENE_LABELS_CN.forEach((label, idx) => {
-          initialPrompts[idx + 1] = label;
-      });
-      setCustomPrompts(initialPrompts);
-
-    } catch (err: any) {
-      console.error(err);
+      // 3. Generate A+ Images (Sequential inside service)
+      const aplusRes = await generateSceneImages(state.uploadedImage, state.mimeType, state.description, APLUS_IMAGE_SCENES, true);
       setState(prev => ({
         ...prev,
         isGenerating: false,
-        error: "生成内容失败，请重试。",
-        generatedImages: prev.generatedImages.map(img => ({ ...img, isLoading: false }))
+        aplusImages: prev.aplusImages.map(img => ({ 
+            ...img, 
+            isLoading: false, 
+            imageUrl: aplusRes.find(r => r.id === img.id)?.imageUrl || img.imageUrl 
+        }))
+      }));
+
+    } catch (err: any) {
+      setState(prev => ({ 
+        ...prev, 
+        isGenerating: false, 
+        error: "部分内容生成受限。由于 API 配额限制，请尝试点击下方单独按钮重新生成失败的图片。",
+        mainImages: prev.mainImages.map(img => ({ ...img, isLoading: false })),
+        aplusImages: prev.aplusImages.map(img => ({ ...img, isLoading: false }))
       }));
     }
   };
 
-  const handleRegenerateSingle = async (id: number) => {
+  const handleRegenSingle = async (id: number, isAplus: boolean) => {
       if (!state.uploadedImage) return;
-      // If user hasn't typed a custom prompt, default to the label. 
-      // Note: For real effect, the backend uses English prompts mapped by ID. 
-      // Here we just pass the custom text if provided.
-      const promptToUse = customPrompts[id] || SCENE_LABELS_CN[id-1];
-      
+      const scenes = isAplus ? APLUS_IMAGE_SCENES : MAIN_IMAGE_SCENES;
+      const scene = scenes.find(s => s.id === id);
+      const promptText = customPrompts[id] || scene?.promptSuffix || "";
+
       setState(prev => ({
           ...prev,
-          generatedImages: prev.generatedImages.map(img => img.id === id ? { ...img, isLoading: true } : img)
+          [isAplus ? 'aplusImages' : 'mainImages']: prev[isAplus ? 'aplusImages' : 'mainImages'].map(img => img.id === id ? { ...img, isLoading: true } : img)
       }));
 
       try {
-          const newUrl = await regenerateSingleImage(id, state.uploadedImage, state.mimeType, state.description, promptToUse);
+          const res = await generateSceneImages(state.uploadedImage, state.mimeType, state.description, [scene!], isAplus, { [id]: promptText });
           setState(prev => ({
             ...prev,
-            generatedImages: prev.generatedImages.map(img => img.id === id ? { ...img, isLoading: false, imageUrl: newUrl } : img)
-        }));
+            [isAplus ? 'aplusImages' : 'mainImages']: prev[isAplus ? 'aplusImages' : 'mainImages'].map(img => img.id === id ? { ...img, isLoading: false, imageUrl: res[0].imageUrl || img.imageUrl } : img)
+          }));
       } catch (err) {
-        alert("重新生成图片失败。");
+        alert("重新生成失败，请稍后再试。");
         setState(prev => ({
             ...prev,
-            generatedImages: prev.generatedImages.map(img => img.id === id ? { ...img, isLoading: false } : img)
+            [isAplus ? 'aplusImages' : 'mainImages']: prev[isAplus ? 'aplusImages' : 'mainImages'].map(img => img.id === id ? { ...img, isLoading: false } : img)
         }));
       }
   };
 
-  const handleGenerateVideo = async () => {
-      if (!state.uploadedImage) return;
-      
-      setVideoState(prev => ({ ...prev, isGenerating: true, error: null, videoUrl: null }));
-      
-      try {
-          // Check for API key access for Veo
-          if (window.aistudio && await window.aistudio.hasSelectedApiKey()) {
-              // Proceed
-          } else if (window.aistudio) {
-              await window.aistudio.openSelectKey();
+  const bulkDownload = (images: { imageUrl: string | null; label: string }[], prefix: string) => {
+      images.forEach((img, idx) => {
+          if (img.imageUrl) {
+              const link = document.createElement('a');
+              link.href = img.imageUrl;
+              link.download = `${prefix}-${img.label || idx}.png`;
+              link.click();
           }
-
-          const uri = await generateMarketingVideo(videoState.prompt, state.uploadedImage, state.mimeType);
-          setVideoState(prev => ({ ...prev, isGenerating: false, videoUrl: uri }));
-      } catch (err: any) {
-          console.error(err);
-          setVideoState(prev => ({ ...prev, isGenerating: false, error: "视频生成失败。请确保您使用了付费 API Key。" }));
-      }
-  };
-
-  // Listing Edit Handlers
-  const handleTitleChange = (val: string) => setListing(prev => prev ? { ...prev, title: val } : null);
-  const handleBulletChange = (index: number, val: string) => {
-      setListing(prev => {
-          if (!prev) return null;
-          const newBullets = [...prev.bullets];
-          newBullets[index] = val;
-          return { ...prev, bullets: newBullets };
       });
   };
 
   return (
-    <div className="max-w-7xl mx-auto">
-      {/* Lightbox Modal */}
-      {lightboxImage && (
-          <div className="fixed inset-0 z-[100] bg-black bg-opacity-90 flex items-center justify-center p-4" onClick={() => setLightboxImage(null)}>
-              <button className="absolute top-4 right-4 text-white hover:text-gray-300">
-                  <X className="w-8 h-8" />
-              </button>
-              <img src={lightboxImage} alt="Full Resolution" className="max-w-full max-h-screen object-contain" />
-              <div className="absolute bottom-4 left-0 right-0 text-center text-white text-sm bg-black bg-opacity-50 py-2">
-                  2K 超清预览
+    <div className="flex gap-6 max-w-full">
+      {/* Sidebar: Keyword Collector */}
+      <div className="hidden xl:block w-72 flex-shrink-0">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 sticky top-20">
+              <h3 className="font-bold text-gray-800 mb-4 flex items-center">
+                  <ListFilter className="w-4 h-4 mr-2 text-amz-blue" />
+                  已收集关键词 ({seedKeywords.length})
+              </h3>
+              <div className="space-y-2 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar text-xs">
+                  {seedKeywords.length > 0 ? seedKeywords.map((kw, i) => (
+                      <div key={i} className="group flex items-center justify-between p-2 bg-gray-50 rounded border border-gray-100 hover:border-amz-orange transition-colors">
+                          <span className="truncate flex-1">{kw}</span>
+                          <button onClick={() => navigator.clipboard.writeText(kw)} className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white rounded shadow-sm">
+                              <Copy className="w-3 h-3 text-gray-400" />
+                          </button>
+                      </div>
+                  )) : (
+                      <p className="text-gray-400 italic">尚未挖掘关键词</p>
+                  )}
               </div>
           </div>
-      )}
+      </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
-        <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
-          <Sparkles className="w-5 h-5 text-amz-orange mr-2" />
-          亚马逊内容生成器
-        </h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {/* Left: Inputs */}
-            <div className="md:col-span-1 space-y-6">
-                {/* Image Upload */}
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">1. 上传产品图片 (白底图最佳)</label>
-                    {!state.uploadedImage ? (
-                        <div 
-                            onClick={() => fileInputRef.current?.click()}
-                            className="border-2 border-dashed border-gray-300 rounded-lg p-8 flex flex-col items-center justify-center cursor-pointer hover:border-amz-orange hover:bg-orange-50 transition-colors h-48"
-                        >
-                            <Upload className="w-8 h-8 text-gray-400 mb-2" />
-                            <p className="text-sm text-gray-500 font-medium">点击上传图片</p>
-                            <p className="text-xs text-gray-400 mt-1">支持 PNG, JPG (最大 5MB)</p>
-                        </div>
-                    ) : (
-                        <div className="relative rounded-lg overflow-hidden border border-gray-200 h-48 bg-gray-50 flex items-center justify-center">
-                            <img 
-                                src={`data:${state.mimeType};base64,${state.uploadedImage}`} 
-                                alt="Uploaded Product" 
-                                className="max-h-full max-w-full object-contain"
-                            />
-                            <button 
-                                onClick={() => {
-                                    setState(prev => ({...prev, uploadedImage: null}));
-                                    if (fileInputRef.current) fileInputRef.current.value = '';
-                                }}
-                                className="absolute top-2 right-2 p-1 bg-white rounded-full shadow-md hover:bg-gray-100"
-                            >
-                                <X className="w-4 h-4 text-gray-600" />
-                            </button>
-                        </div>
-                    )}
-                    <input ref={fileInputRef} type="file" onChange={handleFileChange} accept="image/*" className="hidden" />
-                </div>
-
-                {/* Description Input */}
-                <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">2. 产品描述 ({language})</label>
-                    <textarea
-                        value={state.description}
-                        onChange={(e) => setState(prev => ({ ...prev, description: e.target.value }))}
-                        className="w-full h-40 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amz-orange focus:border-amz-orange sm:text-sm"
-                        placeholder="输入产品详细信息，材质，尺寸，核心卖点..."
-                    />
-                    <p className="text-xs text-gray-400 mt-1">
-                        我们将利用这些信息生成 Listing 文案，策划推广方案，并生成场景图。
-                    </p>
-                </div>
-
-                {/* Generate Button */}
-                <button
-                    onClick={handleGenerate}
-                    disabled={state.isGenerating || !state.uploadedImage || !state.description}
-                    className="w-full py-4 px-4 bg-amz-blue hover:bg-opacity-90 text-white font-medium rounded-lg shadow-sm disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
-                >
-                    {state.isGenerating ? (
-                        <>
-                           <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                           内容生成中...
-                        </>
-                    ) : (
-                        <>
-                            <Sparkles className="w-4 h-4 mr-2" />
-                            一键生成 文案 & 图片
-                        </>
-                    )}
-                </button>
-                {state.error && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{state.error}</p>}
+      <div className="flex-1 min-w-0 space-y-8">
+        {lightboxImage && (
+            <div className="fixed inset-0 z-[100] bg-black bg-opacity-95 flex items-center justify-center p-4" onClick={() => setLightboxImage(null)}>
+                <img src={lightboxImage} className="max-w-full max-h-full object-contain shadow-2xl" />
+                <button className="absolute top-4 right-4 text-white hover:scale-110 transition-transform"><X className="w-10 h-10" /></button>
             </div>
+        )}
 
-            {/* Right: Results Grid */}
-            <div className="md:col-span-2 space-y-8">
-                 
-                 {/* Listing Section (Always visible placeholders if no data) */}
-                 <div className="animate-fade-in-up">
-                         <div className="flex items-center mb-4">
-                            <FileText className="w-5 h-5 text-amz-blue mr-2" />
-                            <h3 className="font-bold text-gray-800">SEO 优化 Listing 文案 ({language})</h3>
-                         </div>
-                         
-                         {/* Title */}
-                         <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-4 group relative">
-                             <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">产品标题 (Title)</label>
-                             <textarea 
-                                value={listing?.title || ""}
-                                onChange={(e) => handleTitleChange(e.target.value)}
-                                className="w-full bg-transparent border-none focus:ring-0 p-0 text-sm font-medium text-gray-900 resize-none placeholder-gray-300"
-                                rows={2}
-                                placeholder="生成的标题将显示在这里..."
-                             />
-                             {listing && (
-                                <button onClick={() => navigator.clipboard.writeText(listing.title)} className="absolute top-2 right-2 p-1.5 bg-white border rounded shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-100">
-                                    <Copy className="w-3 h-3 text-gray-500" />
-                                </button>
-                             )}
-                         </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
+                <Sparkles className="w-5 h-5 text-amz-orange mr-2" />
+                图片 & 文案 工作台
+            </h2>
 
-                         {/* Bullets */}
-                         <div className="space-y-3">
-                             {Array.from({ length: 5 }).map((_, idx) => (
-                                 <div key={idx} className="bg-gray-50 p-3 rounded-lg border border-gray-200 group relative">
-                                    <div className="absolute left-0 top-3 w-6 flex justify-center text-gray-400 font-bold text-xs">{idx + 1}</div>
-                                    <textarea 
-                                        value={listing?.bullets[idx] || ""}
-                                        onChange={(e) => handleBulletChange(idx, e.target.value)}
-                                        className="w-full pl-6 bg-transparent border-none focus:ring-0 p-0 text-sm text-gray-700 resize-none placeholder-gray-300 min-h-[80px]"
-                                        rows={4}
-                                        placeholder={`卖点 ${idx + 1} 将显示在这里 (约 150+ 字符)...`}
-                                    />
-                                    {listing?.bullets[idx] && (
-                                        <button onClick={() => navigator.clipboard.writeText(listing.bullets[idx])} className="absolute top-2 right-2 p-1.5 bg-white border rounded shadow-sm opacity-0 group-hover:opacity-100 transition-opacity hover:bg-gray-100">
-                                            <Copy className="w-3 h-3 text-gray-500" />
-                                        </button>
-                                    )}
-                                 </div>
-                             ))}
-                         </div>
-                 </div>
+            {state.error && (
+                <div className="mb-6 p-4 bg-yellow-50 border-l-4 border-yellow-400 text-yellow-800 text-sm flex items-start">
+                    <AlertTriangle className="w-5 h-5 mr-3 flex-shrink-0" />
+                    <p>{state.error}</p>
+                </div>
+            )}
 
-                 {/* Images Section */}
-                 <div>
-                    <div className="flex justify-between items-center mb-4 pt-4 border-t border-gray-100">
-                        <div className="flex items-center">
-                            <ImageIcon className="w-5 h-5 text-amz-blue mr-2" />
-                            <h3 className="font-bold text-gray-800">A+ 场景图 (2K 高清)</h3>
-                        </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {state.generatedImages.map((img) => (
-                            <div key={img.id} className="flex flex-col gap-2">
-                                <div className="relative group bg-gray-50 border border-gray-200 rounded-lg overflow-hidden aspect-square">
-                                    {/* Loading State */}
-                                    {img.isLoading && (
-                                        <div className="absolute inset-0 z-20 bg-white bg-opacity-90 flex flex-col items-center justify-center text-gray-400">
-                                            <RefreshCw className="w-6 h-6 animate-spin mb-2 text-amz-orange" />
-                                            <span className="text-xs">处理中...</span>
-                                        </div>
-                                    )}
-
-                                    {/* Image Display */}
-                                    {img.imageUrl ? (
-                                        <>
-                                            <img 
-                                                src={img.imageUrl} 
-                                                alt={img.label} 
-                                                className="w-full h-full object-cover cursor-pointer hover:scale-105 transition-transform duration-500"
-                                                onClick={() => setLightboxImage(img.imageUrl)}
-                                            />
-                                            <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all duration-200 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 gap-2">
-                                                <button onClick={() => setLightboxImage(img.imageUrl)} className="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100" title="Enlarge">
-                                                    <Maximize2 className="w-4 h-4 text-amz-dark" />
-                                                </button>
-                                                <a href={img.imageUrl} download={`amazon-aplus-${img.id}.png`} className="p-2 bg-white rounded-full shadow-lg hover:bg-gray-100" title="Download">
-                                                    <Download className="w-4 h-4 text-amz-dark" />
-                                                </a>
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-300">
-                                            <ImageIcon className="w-8 h-8 mb-2" />
-                                            <span className="text-xs text-center px-4">等待生成</span>
-                                        </div>
-                                    )}
-                                </div>
-                                
-                                {/* Prompt Input & Regenerate Button */}
-                                <div className="space-y-1">
-                                    <textarea
-                                        value={customPrompts[img.id] || img.label}
-                                        onChange={(e) => setCustomPrompts(prev => ({...prev, [img.id]: e.target.value}))}
-                                        className="w-full text-xs p-2 border border-gray-200 rounded resize-none focus:border-amz-orange focus:ring-1 focus:ring-amz-orange"
-                                        rows={2}
-                                        placeholder="输入修改提示词..."
-                                    />
-                                    <button 
-                                        onClick={() => handleRegenerateSingle(img.id)}
-                                        disabled={img.isLoading || !state.uploadedImage}
-                                        className="w-full text-xs py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded font-medium flex items-center justify-center disabled:opacity-50"
-                                    >
-                                        <RefreshCw className="w-3 h-3 mr-1" /> 重新生成
-                                    </button>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                <div className="space-y-6">
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">1. 上传参考主图</label>
+                        {!state.uploadedImage ? (
+                            <div onClick={() => fileInputRef.current?.click()} className="border-2 border-dashed border-gray-300 rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer hover:bg-orange-50 hover:border-amz-orange h-48 transition-all group">
+                                <Upload className="w-8 h-8 text-gray-300 mb-2 group-hover:text-amz-orange" />
+                                <p className="text-sm text-gray-400 group-hover:text-amz-orange">点击或拖拽上传</p>
+                            </div>
+                        ) : (
+                            <div className="relative rounded-xl overflow-hidden border border-gray-200 h-48 bg-gray-50 flex items-center justify-center group">
+                                <img src={`data:${state.mimeType};base64,${state.uploadedImage}`} className="max-h-full object-contain" />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                    <button onClick={() => setState(prev => ({...prev, uploadedImage: null}))} className="p-2 bg-white rounded-full shadow-md text-red-500 hover:scale-110 transition-transform"><Trash2 className="w-5 h-5" /></button>
                                 </div>
                             </div>
-                        ))}
+                        )}
+                        <input ref={fileInputRef} type="file" onChange={handleFileChange} accept="image/*" className="hidden" />
                     </div>
-                 </div>
-
-                 {/* Video Studio Section */}
-                 <div className="pt-6 border-t border-gray-200">
-                    <div className="flex items-center mb-4">
-                        <Video className="w-5 h-5 text-purple-600 mr-2" />
-                        <h3 className="font-bold text-gray-800">视频工作室 (Beta)</h3>
+                    <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase mb-2">2. 产品核心描述</label>
+                        <textarea
+                            value={state.description}
+                            onChange={(e) => setState(prev => ({ ...prev, description: e.target.value }))}
+                            className="w-full h-40 p-4 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-amz-blue focus:border-amz-blue shadow-inner"
+                            placeholder="输入核心卖点、材质、适用场景..."
+                        />
                     </div>
-                    
-                    <div className="bg-purple-50 rounded-xl p-6 border border-purple-100">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="text-sm font-medium text-gray-700 mb-1 block">视频提示词 (Video Prompt)</label>
-                                    <textarea
-                                        value={videoState.prompt}
-                                        onChange={(e) => setVideoState(prev => ({...prev, prompt: e.target.value}))}
-                                        className="w-full p-3 border border-gray-300 rounded-lg text-sm"
-                                        rows={3}
-                                    />
-                                </div>
-                                <button
-                                    onClick={handleGenerateVideo}
-                                    disabled={videoState.isGenerating || !state.uploadedImage}
-                                    className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-bold flex items-center shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    {videoState.isGenerating ? <RefreshCw className="animate-spin w-4 h-4 mr-2" /> : <PlayCircle className="w-4 h-4 mr-2" />}
-                                    生成营销视频
-                                </button>
-                                {videoState.error && <p className="text-sm text-red-600">{videoState.error}</p>}
-                                <p className="text-xs text-gray-500">需要先上传主图。生成 720p 16:9 视频 (Veo Model)。</p>
+                    <button 
+                        onClick={handleGenerate} 
+                        disabled={state.isGenerating || !state.uploadedImage || !state.description} 
+                        className="w-full py-4 bg-amz-blue text-white rounded-xl font-bold shadow-lg flex items-center justify-center hover:bg-amz-light disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                    >
+                        {state.isGenerating ? (
+                            <div className="flex items-center">
+                                <RefreshCw className="animate-spin w-5 h-5 mr-3" />
+                                <span>正在排队渲染中 (约 1-2 分钟)...</span>
                             </div>
-                            
-                            <div className="aspect-video bg-black rounded-lg overflow-hidden flex items-center justify-center relative shadow-lg">
-                                {videoState.isGenerating ? (
-                                    <div className="text-white flex flex-col items-center">
-                                        <RefreshCw className="animate-spin w-8 h-8 mb-2" />
-                                        <span className="text-sm">视频生成中...</span>
-                                    </div>
-                                ) : videoState.videoUrl ? (
-                                    <video 
-                                        src={`${videoState.videoUrl}&key=${process.env.API_KEY}`} 
-                                        controls 
-                                        autoPlay 
-                                        loop
-                                        className="w-full h-full object-contain"
-                                    />
-                                ) : (
-                                    <div className="text-gray-500 flex flex-col items-center">
-                                        <Video className="w-12 h-12 mb-2 opacity-30" />
-                                        <span className="text-sm">暂无视频</span>
-                                    </div>
+                        ) : (
+                            <><Sparkles className="w-5 h-5 mr-2" /> 一键生成全套内容</>
+                        )}
+                    </button>
+                    <p className="text-[10px] text-gray-400 text-center italic">由于 API 限制，多张图片将按顺序排队生成以确保质量。</p>
+                </div>
+
+                <div className="md:col-span-2 space-y-10">
+                    {/* Listing Content */}
+                    <div className="bg-gray-50 p-6 rounded-xl border border-gray-200 shadow-sm">
+                        <div className="flex items-center mb-4"><FileText className="w-4 h-4 text-amz-blue mr-2" /><h3 className="font-bold text-gray-800">SEO 优化文案</h3></div>
+                        <div className="space-y-4">
+                            <div className="bg-white p-3 rounded border border-gray-200 group relative">
+                                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">产品标题</label>
+                                <p className="text-sm font-medium text-gray-900 mt-1">{listing?.title || "等待生成..."}</p>
+                                {listing?.title && (
+                                    <button onClick={() => navigator.clipboard.writeText(listing.title)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1.5 hover:bg-gray-100 rounded text-gray-400"><Copy className="w-3.5 h-3.5" /></button>
                                 )}
                             </div>
+                            <div className="space-y-2">
+                                {Array.from({length: 5}).map((_, i) => (
+                                    <div key={i} className="bg-white p-3 rounded border border-gray-200 group relative">
+                                        <label className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">卖点 {i+1}</label>
+                                        <p className="text-xs text-gray-600 mt-1">{listing?.bullets[i] || "等待生成..."}</p>
+                                        {listing?.bullets[i] && (
+                                            <button onClick={() => navigator.clipboard.writeText(listing.bullets[i])} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1.5 hover:bg-gray-100 rounded text-gray-400"><Copy className="w-3.5 h-3.5" /></button>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
-                 </div>
 
+                    {/* Main Images Section */}
+                    <div>
+                        <div className="flex justify-between items-center mb-4">
+                            <div className="flex items-center"><ImageIcon className="w-4 h-4 text-amz-blue mr-2" /><h3 className="font-bold text-gray-800">主图场景图 (2K 高清)</h3></div>
+                            <button onClick={() => bulkDownload(state.mainImages, 'main')} className="text-xs flex items-center text-amz-blue hover:underline font-medium"><Download className="w-3 h-3 mr-1" /> 打包下载主图</button>
+                        </div>
+                        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                            {state.mainImages.map(img => (
+                                <ImageCard key={img.id} img={img} onEnlarge={setLightboxImage} onRegen={() => handleRegenSingle(img.id, false)} prompt={customPrompts[img.id] || ""} setPrompt={(val: string) => setCustomPrompts(p => ({...p, [img.id]: val}))} />
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* A+ Images Section */}
+                    <div>
+                        <div className="flex justify-between items-center mb-4">
+                            <div className="flex items-center"><ImageIcon className="w-4 h-4 text-purple-600 mr-2" /><h3 className="font-bold text-gray-800">高级 A+ 详情图 (2928*1200)</h3></div>
+                            <button onClick={() => bulkDownload(state.aplusImages, 'aplus')} className="text-xs flex items-center text-purple-600 hover:underline font-medium"><Download className="w-3 h-3 mr-1" /> 打包下载 A+</button>
+                        </div>
+                        <div className="space-y-6">
+                            {state.aplusImages.map(img => (
+                                <div key={img.id} className="bg-gray-50 p-4 rounded-xl border border-gray-200 hover:border-purple-200 transition-colors shadow-sm">
+                                    <div className="aspect-[2.44/1] w-full bg-white rounded border border-gray-100 overflow-hidden relative group">
+                                        {img.isLoading ? (
+                                            <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center">
+                                                <RefreshCw className="animate-spin text-purple-600 mb-2" />
+                                                <span className="text-[10px] text-purple-600 font-bold uppercase animate-pulse">渲染中...</span>
+                                            </div>
+                                        ) : img.imageUrl ? (
+                                            <img src={img.imageUrl} onClick={() => setLightboxImage(img.imageUrl)} className="w-full h-full object-cover cursor-zoom-in hover:scale-105 transition-transform duration-500" />
+                                        ) : (
+                                            <div className="flex flex-col items-center justify-center h-full text-gray-300">
+                                                <ImageIcon className="w-8 h-8 mb-2 opacity-20" />
+                                                <span className="text-xs font-medium opacity-40">{img.label}</span>
+                                            </div>
+                                        )}
+                                        {img.imageUrl && !img.isLoading && (
+                                            <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
+                                                <button onClick={() => setLightboxImage(img.imageUrl)} className="p-2 bg-white rounded-full shadow-lg text-gray-700 hover:bg-purple-50"><Maximize2 className="w-4 h-4" /></button>
+                                                <a href={img.imageUrl} download={`aplus-${img.id}.png`} className="p-2 bg-white rounded-full shadow-lg text-purple-600 hover:bg-purple-50"><Download className="w-4 h-4" /></a>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="mt-3 flex gap-3">
+                                        <div className="flex-1 relative">
+                                            <input 
+                                                value={customPrompts[img.id] || ""} 
+                                                onChange={e => setCustomPrompts(p => ({...p, [img.id]: e.target.value}))} 
+                                                className="w-full text-xs px-3 py-2 border rounded-lg focus:ring-1 focus:ring-purple-500 shadow-sm" 
+                                                placeholder={img.label} 
+                                            />
+                                            {img.imageUrl && <div className="absolute right-3 top-2 text-green-500"><CheckCircle className="w-4 h-4" /></div>}
+                                        </div>
+                                        <button 
+                                            onClick={() => handleRegenSingle(img.id, true)} 
+                                            disabled={img.isLoading}
+                                            className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-xs font-bold hover:bg-purple-50 hover:border-purple-300 hover:text-purple-700 transition-all flex items-center gap-2"
+                                        >
+                                            <RefreshCw className={`w-3 h-3 ${img.isLoading ? 'animate-spin' : ''}`} /> 
+                                            {img.imageUrl ? '重新生成' : '立即生成'}
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
       </div>
     </div>
   );
 };
+
+const ImageCard = ({ img, onEnlarge, onRegen, prompt, setPrompt }: any) => (
+    <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 hover:border-amz-blue transition-colors group">
+        <div className="aspect-square bg-white rounded-lg border border-gray-100 overflow-hidden relative mb-3">
+            {img.isLoading ? (
+                <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex flex-col items-center justify-center">
+                    <RefreshCw className="animate-spin text-amz-orange mb-2" />
+                    <span className="text-[9px] text-amz-orange font-bold uppercase animate-pulse">队列中...</span>
+                </div>
+            ) : img.imageUrl ? (
+                <img src={img.imageUrl} onClick={() => onEnlarge(img.imageUrl)} className="w-full h-full object-cover cursor-zoom-in group-hover:scale-110 transition-transform duration-500" />
+            ) : (
+                <div className="flex flex-col items-center justify-center h-full text-gray-200 p-4 text-center">
+                    <ImageIcon className="w-6 h-6 mb-1 opacity-20" />
+                    <span className="text-[9px] font-medium leading-tight">{img.label}</span>
+                </div>
+            )}
+            {img.imageUrl && !img.isLoading && (
+                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+                    <button onClick={() => onEnlarge(img.imageUrl)} className="p-2 bg-white rounded-full shadow-lg text-gray-700 hover:scale-110 transition-transform"><Maximize2 className="w-3.5 h-3.5" /></button>
+                    <a href={img.imageUrl} download={`main-${img.id}.png`} className="p-2 bg-white rounded-full shadow-lg text-amz-blue hover:scale-110 transition-transform"><Download className="w-3.5 h-3.5" /></a>
+                </div>
+            )}
+        </div>
+        <div className="space-y-2">
+            <input 
+                value={prompt} 
+                onChange={e => setPrompt(e.target.value)} 
+                className="w-full text-[10px] px-2 py-1.5 border rounded focus:ring-1 focus:ring-amz-blue bg-white" 
+                placeholder={img.label} 
+            />
+            <button 
+                onClick={onRegen} 
+                disabled={img.isLoading}
+                className="w-full py-1.5 text-[9px] font-bold bg-white border border-gray-200 rounded hover:bg-amz-blue hover:text-white hover:border-amz-blue transition-all uppercase tracking-wider disabled:opacity-50"
+            >
+                {img.imageUrl ? 'Regenerate' : 'Generate'}
+            </button>
+        </div>
+    </div>
+);
+
+function AlertTriangle(props: any) {
+    return (
+      <svg
+        {...props}
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
+        <path d="M12 9v4" />
+        <path d="M12 17h.01" />
+      </svg>
+    )
+}
 
 export default ImageGenerator;

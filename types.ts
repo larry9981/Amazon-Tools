@@ -35,7 +35,8 @@ export interface ImageGeneratorState {
   description: string;
   uploadedImage: string | null; // Base64
   mimeType: string;
-  generatedImages: GeneratedImage[];
+  mainImages: GeneratedImage[];
+  aplusImages: GeneratedImage[];
 }
 
 export interface ListingContent {
@@ -70,4 +71,6 @@ export interface ProductContext {
     description: string;
     keywords: string[];
     hasGeneratedContent: boolean;
+    uploadedImage: string | null;
+    mimeType: string;
 }
