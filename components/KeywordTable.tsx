@@ -1,6 +1,7 @@
+
 import React, { useMemo } from 'react';
 import { KeywordData } from '../types';
-import { ArrowUpDown, Download, Copy, ExternalLink, TrendingUp, TrendingDown, Minus, Layers } from 'lucide-react';
+import { Download, Copy, ExternalLink, TrendingUp, TrendingDown, Minus, Layers } from 'lucide-react';
 
 interface KeywordTableProps {
   data: KeywordData[];
@@ -8,16 +9,18 @@ interface KeywordTableProps {
 
 const KeywordTable: React.FC<KeywordTableProps> = ({ data }) => {
   const downloadCSV = () => {
-    // Translated headers for CSV
+    if (!data || data.length === 0) return;
     const headers = ['层级 (Tier)', '关键词 (Keyword)', '搜索量 (Volume)', '竞争度 (Competition)', 'CPC', '意图 (Intent)'];
-    const rows = data.map(k => [
-      k.tier,
-      `"${k.keyword}"`, 
-      k.searchVolume, 
-      k.competition, 
-      k.cpc, 
-      k.intent
-    ]);
+    const rows = data
+      .filter(k => k) 
+      .map(k => [
+        k.tier || "N/A",
+        `"${k.keyword || ""}"`, 
+        k.searchVolume || 0, 
+        k.competition || "N/A", 
+        k.cpc || 0, 
+        k.intent || "N/A"
+      ]);
     const csvContent = "data:text/csv;charset=utf-8," + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
@@ -29,7 +32,11 @@ const KeywordTable: React.FC<KeywordTableProps> = ({ data }) => {
   };
 
   const copyToClipboard = () => {
-    const text = data.map(k => `${k.keyword} (${k.tier})`).join('\n');
+    if (!data) return;
+    const text = data
+      .filter(k => k && k.keyword)
+      .map(k => `${k.keyword} (${k.tier || 'N/A'})`)
+      .join('\n');
     navigator.clipboard.writeText(text);
     alert('关键词已复制到剪贴板!');
   };
@@ -41,18 +48,25 @@ const KeywordTable: React.FC<KeywordTableProps> = ({ data }) => {
       'Tier 3 (Long-tail)': []
     };
     
-    // Normalize tier names in case AI varies slightly
+    if (!data || !Array.isArray(data)) return tiers;
+
     data.forEach(item => {
-      if (item.tier.includes('Tier 1')) tiers['Tier 1 (Head)'].push(item);
-      else if (item.tier.includes('Tier 2')) tiers['Tier 2 (Middle)'].push(item);
-      else tiers['Tier 3 (Long-tail)'].push(item);
+      if (!item) return;
+      
+      // Fixed: item.tier.toLowerCase() crash by ensuring it's a string first
+      const tierValue = String(item.tier || '').toLowerCase();
+      if (tierValue.includes('tier 1')) tiers['Tier 1 (Head)'].push(item);
+      else if (tierValue.includes('tier 2')) tiers['Tier 2 (Middle)'].push(item);
+      else if (tierValue.includes('tier 3') || tierValue.includes('long-tail')) tiers['Tier 3 (Long-tail)'].push(item);
+      else tiers['Tier 3 (Long-tail)'].push(item); // Fallback to long-tail
     });
 
     return tiers;
   }, [data]);
 
   const getCompetitionColor = (comp: string) => {
-    switch(comp.toLowerCase()) {
+    if (!comp) return 'text-gray-600 bg-gray-50';
+    switch(String(comp).toLowerCase()) {
       case 'low': return 'text-green-600 bg-green-50 border-green-200';
       case 'medium': return 'text-yellow-600 bg-yellow-50 border-yellow-200';
       case 'high': return 'text-red-600 bg-red-50 border-red-200';
@@ -66,7 +80,7 @@ const KeywordTable: React.FC<KeywordTableProps> = ({ data }) => {
     return <Minus className="w-4 h-4 text-gray-400 mr-2" />;
   };
 
-  if (data.length === 0) return null;
+  if (!data || data.length === 0) return null;
 
   return (
     <div className="space-y-6">
@@ -111,17 +125,17 @@ const KeywordTable: React.FC<KeywordTableProps> = ({ data }) => {
                     <td className="px-6 py-3 text-sm font-medium text-amz-dark">{row.keyword}</td>
                     <td className="px-6 py-3 text-sm text-gray-600">
                       <div className="flex items-center">
-                        {getVolumeIcon(row.searchVolume)}
-                        <span className="font-mono">{row.searchVolume}</span>
+                        {getVolumeIcon(row.searchVolume || 0)}
+                        <span className="font-mono">{row.searchVolume || 0}</span>
                       </div>
                     </td>
                     <td className="px-6 py-3 text-sm">
-                      <span className={`px-2 py-1 text-xs rounded-full border ${getCompetitionColor(row.competition)}`}>{row.competition}</span>
+                      <span className={`px-2 py-1 text-xs rounded-full border ${getCompetitionColor(row.competition)}`}>{row.competition || 'N/A'}</span>
                     </td>
-                    <td className="px-6 py-3 text-sm font-mono text-gray-600">${row.cpc.toFixed(2)}</td>
-                    <td className="px-6 py-3 text-sm text-gray-500">{row.intent}</td>
+                    <td className="px-6 py-3 text-sm font-mono text-gray-600">${(row.cpc || 0).toFixed(2)}</td>
+                    <td className="px-6 py-3 text-sm text-gray-500">{row.intent || 'N/A'}</td>
                     <td className="px-6 py-3 text-right text-sm">
-                      <a href={`https://www.amazon.com/s?k=${encodeURIComponent(row.keyword)}`} target="_blank" rel="noreferrer" className="text-amz-blue hover:text-amz-orange">
+                      <a href={`https://www.amazon.com/s?k=${encodeURIComponent(row.keyword || "")}`} target="_blank" rel="noreferrer" className="text-amz-blue hover:text-amz-orange">
                         <ExternalLink className="w-4 h-4" />
                       </a>
                     </td>

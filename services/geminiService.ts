@@ -1,147 +1,115 @@
-
-import { GoogleGenAI, VideoGenerationReferenceType } from "@google/genai";
+import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 import { KeywordData, GroundingSource, ListingContent, LaunchDayPlan, AdStrategyNode, Language } from "../types";
-
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-interface AnalysisResult {
-  keywords: KeywordData[];
-  sources: GroundingSource[];
-}
+const getApiKey = (customKey?: string) => {
+  if (typeof customKey === 'string' && customKey.trim().length > 5) return customKey.trim();
+  return process.env.API_KEY || "";
+};
 
-export const generateKeywords = async (seedKeyword: string, language: Language): Promise<AnalysisResult> => {
+const getSafeText = (response: GenerateContentResponse): string => {
   try {
-    const model = 'gemini-3-flash-preview';
-    
-    const prompt = `
-      Act as an expert Amazon SEO analyst for the ${language} market. 
-      Conduct a keyword research analysis for the seed term: "${seedKeyword}".
-      
-      Use Google Search to identify trending terms.
-      
-      Return a STRICT JSON array of exactly 20 keyword objects.
-      
-      CRITICAL LANGUAGE REQUIREMENT:
-      - The "keyword" field MUST be in ${language} language.
-      - If the target language is NOT English, ensure keywords are native terms used by locals in that region.
-
-      Categorize them into 3 Tiers:
-      - Tier 1 (Head): High traffic, broad, expensive.
-      - Tier 2 (Middle): Specific, medium traffic, good conversion.
-      - Tier 3 (Long-tail): Very specific, lower traffic, high conversion, easy to rank.
-
-      Structure:
-      {
-        "keyword": "string (in ${language})",
-        "searchVolume": number (0-100 estimate),
-        "competition": "string (Low, Medium, High)",
-        "cpc": number (USD estimate),
-        "intent": "string (Commercial, Informational, Transactional)",
-        "tier": "string (Tier 1 (Head) | Tier 2 (Middle) | Tier 3 (Long-tail))"
-      }
-    `;
-
-    const response = await ai.models.generateContent({
-      model,
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-        temperature: 0.3,
-      },
-    });
-
-    const text = response.text || "[]";
-    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-    const sources: GroundingSource[] = chunks
-      .map((chunk: any) => {
-        if (chunk.web) {
-          return { title: chunk.web.title, url: chunk.web.uri };
-        }
-        return null;
-      })
-      .filter((item: any): item is GroundingSource => item !== null);
-
-    let parsedKeywords: KeywordData[] = [];
-    try {
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        parsedKeywords = JSON.parse(jsonMatch[0]);
-      } else {
-        parsedKeywords = JSON.parse(text);
-      }
-    } catch (parseError) {
-      console.error("Failed to parse Gemini response", text);
-      throw new Error("Failed to process keyword data.");
-    }
-
-    return {
-      keywords: parsedKeywords,
-      sources: sources
-    };
+    const candidates = response?.candidates;
+    if (!candidates || candidates.length === 0) return "";
+    const firstCandidate = candidates[0];
+    if (!firstCandidate?.content?.parts) return "";
+    const textPart = firstCandidate.content.parts.find(part => typeof part.text === 'string');
+    return textPart?.text || "";
   } catch (error) {
-    console.error("Gemini API Error:", error);
-    throw error;
+    return "";
   }
 };
 
-// --- Image Generation Services ---
-
-async function generateImageWithRetry(base64Image: string, mimeType: string, prompt: string, isWide: boolean = false, retries = 2): Promise<string> {
-    const enhancedPrompt = `
-        ${prompt}
-        CRITICAL VISUAL REQUIREMENTS:
-        - Image MUST be ultra-high quality, commercial grade photography.
-        - Razor-sharp focus on the main product.
-        - Professional studio lighting.
-        - Color grading: Vibrant and high contrast.
-        ${isWide ? "- Format: Wide panoramic cinematic shot, 2.5:1 ratio feel." : "- Format: Standard product shot."}
-    `;
-
-    const runCall = async (modelName: string, config: any) => {
-        const genAI = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        return await genAI.models.generateContent({
-            model: modelName,
-            contents: {
-                parts: [
-                    { inlineData: { data: base64Image, mimeType } },
-                    { text: enhancedPrompt },
-                ],
-            },
-            config
-        });
-    };
-
-    for (let i = 0; i <= retries; i++) {
-        try {
-            // Priority: Gemini 3 Pro
-            try {
-                const response = await runCall('gemini-3-pro-image-preview', {
-                    imageConfig: { aspectRatio: isWide ? "16:9" : "1:1", imageSize: "2K" }
-                });
-                const imageUrl = response.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
-                if (imageUrl) return `data:image/png;base64,${imageUrl}`;
-            } catch (error: any) {
-                if (error?.message?.includes('429') || error?.message?.includes('RESOURCE_EXHAUSTED')) {
-                    throw error; // Let the outer retry loop handle 429s
-                }
-                // If other error, try fallback immediately
-                const fallbackResponse = await runCall('gemini-2.5-flash-image', {
-                    imageConfig: { aspectRatio: isWide ? "16:9" : "1:1" }
-                });
-                const imageUrl = fallbackResponse.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
-                if (imageUrl) return `data:image/png;base64,${imageUrl}`;
-            }
-        } catch (error: any) {
-            if (i === retries) throw error;
-            const waitTime = Math.pow(2, i) * 2000; // Exponential backoff
-            console.warn(`Rate limited. Retrying in ${waitTime}ms...`);
-            await delay(waitTime);
-        }
+/**
+ * Robust JSON extraction from AI responses.
+ * Finds the actual JSON block even if there is trailing commentary or markdown.
+ */
+const extractJson = (text: string): any => {
+  try {
+    const t = text.trim();
+    // Use regex to find the outermost matching braces/brackets
+    const jsonObjectMatch = t.match(/\{[\s\S]*\}/);
+    const jsonArrayMatch = t.match(/\[[\s\S]*\]/);
+    
+    let jsonStr = "";
+    if (jsonObjectMatch && jsonArrayMatch) {
+      // Pick the one that starts earlier
+      jsonStr = jsonObjectMatch.index! < jsonArrayMatch.index! ? jsonObjectMatch[0] : jsonArrayMatch[0];
+    } else if (jsonObjectMatch) {
+      jsonStr = jsonObjectMatch[0];
+    } else if (jsonArrayMatch) {
+      jsonStr = jsonArrayMatch[0];
+    } else {
+      jsonStr = t;
     }
-    throw new Error("Failed to generate image after retries.");
-}
+
+    // Clean up potential trailing backticks or garbage
+    // This often happens with Markdown code blocks
+    if (jsonStr.endsWith('```')) jsonStr = jsonStr.slice(0, -3);
+    
+    return JSON.parse(jsonStr.trim());
+  } catch (e) {
+    console.error("JSON Extraction Error:", e, "Source text snippet:", text.substring(0, 200));
+    throw new Error("AI 返回数据解析失败。建议检查 API Key 或稍后重试。");
+  }
+};
+
+export const generateKeywords = async (seedKeyword: string, language: Language, apiKey?: string): Promise<{keywords: KeywordData[], sources: GroundingSource[]}> => {
+  try {
+    const ai = new GoogleGenAI({ apiKey: getApiKey(apiKey) });
+    const prompt = `Act as an expert Amazon SEO analyst for the ${language} market. Analyze "${seedKeyword}". Return STRICT JSON array of 20 keywords with searchVolume (0-100), competition (Low, Medium, High), cpc, intent, tier.`;
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview',
+      contents: prompt,
+      config: { tools: [{ googleSearch: {} }], temperature: 0.3 },
+    });
+    const text = getSafeText(response);
+    const chunks = response?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const sources: GroundingSource[] = chunks.map((c: any) => c.web ? { title: c.web.title, url: c.web.uri } : null).filter(Boolean);
+    
+    const keywords = extractJson(text);
+    return { keywords, sources };
+  } catch (error) { throw error; }
+};
+
+export const generateSingleImage = async (
+  base64Image: string, 
+  mimeType: string, 
+  prompt: string, 
+  isWide: boolean = false, 
+  apiKey?: string
+): Promise<string> => {
+    const finalKey = getApiKey(apiKey);
+    const ai = new GoogleGenAI({ apiKey: finalKey });
+    
+    const compositionPrompt = isWide 
+        ? "Cinematic wide panoramic composition, professional Amazon A+ Content banner, 2928x1200 resolution aesthetic, sharp focus on product features."
+        : "Square high-end commercial product shot, professional studio lighting, 2K resolution quality.";
+
+    const enhancedPrompt = `${prompt}. ${compositionPrompt}. High-end commercial photography, 8K resolution, sharp focus, professional lighting.`;
+    
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-image-preview',
+        contents: {
+            parts: [
+                { inlineData: { data: base64Image, mimeType } },
+                { text: enhancedPrompt }
+            ]
+        },
+        config: {
+            imageConfig: {
+                aspectRatio: isWide ? "16:9" : "1:1",
+                imageSize: "2K"
+            }
+        }
+    });
+
+    const parts = response.candidates?.[0]?.content?.parts || [];
+    const imagePart = parts.find(p => p.inlineData);
+    if (!imagePart) throw new Error("No image data returned");
+    return `data:image/png;base64,${imagePart.inlineData.data}`;
+};
 
 export const generateSceneImages = async (
   base64Image: string,
@@ -149,140 +117,99 @@ export const generateSceneImages = async (
   productDescription: string,
   scenes: { id: number; promptSuffix: string }[],
   isWide: boolean = false,
+  apiKey?: string,
   customPromptOverrides: { [key: number]: string } = {}
 ): Promise<{ id: number; imageUrl: string }[]> => {
   const results: { id: number; imageUrl: string }[] = [];
-
-  // Sequential execution to avoid hitting rate limits with Promise.all
   for (const scene of scenes) {
-    const isSpecificRegen = Object.keys(customPromptOverrides).length > 0;
-    if (isSpecificRegen && !customPromptOverrides[scene.id]) {
-        results.push({ id: scene.id, imageUrl: "" });
-        continue;
-    }
-
-    const specificInstruction = customPromptOverrides[scene.id] || scene.promptSuffix;
-    const prompt = `
-        Product: ${productDescription}
-        Scene Requirement: ${specificInstruction}
-        The image MUST feature the product visually consistent with the input image.
-    `;
-
+    const prompt = `Product: ${productDescription}. Scene: ${customPromptOverrides[scene.id] || scene.promptSuffix}`;
     try {
-      const imageUrl = await generateImageWithRetry(base64Image, mimeType, prompt, isWide);
+      const imageUrl = await generateSingleImage(base64Image, mimeType, prompt, isWide, apiKey);
       results.push({ id: scene.id, imageUrl });
-      // Small pause between images in a batch to respect quota
-      if (scenes.length > 1) await delay(1000);
+      await delay(1200); 
     } catch (error) {
-      console.error(`Error generating scene ${scene.id}:`, error);
+      console.error(`Error generating image for scene ${scene.id}:`, error);
       results.push({ id: scene.id, imageUrl: "" });
     }
   }
-
   return results;
 };
 
-// --- Listing Optimization Service ---
-
-export const generateListingContent = async (description: string, keywords: string[], language: Language): Promise<ListingContent> => {
-    const model = 'gemini-3-flash-preview';
-    const prompt = `
-        Act as a professional Amazon Copywriter for the ${language} market.
-        Write an optimized Product Title and 5 Bullet Points.
-        Product Description: ${description}
-        Target Keywords: ${keywords.join(', ')}
-        CRITICAL LANGUAGE: Output MUST be in ${language}.
-        Bullets MUST be at least 150 characters long each.
-        Return STRICT JSON:
-        {
-            "title": "string",
-            "bullets": ["string", "string", "string", "string", "string"]
-        }
-    `;
-
+export const generateListingContent = async (description: string, keywords: string[], language: Language, apiKey?: string): Promise<ListingContent> => {
+    const ai = new GoogleGenAI({ apiKey: getApiKey(apiKey) });
+    const prompt = `Amazon SEO Expert. Language: ${language}. Optimize for: ${keywords.join(',')}. Product: ${description}. Output JSON: {title: string, bullets: string[]}`;
     const response = await ai.models.generateContent({
-        model,
+        model: 'gemini-3-flash-preview',
         contents: prompt,
         config: { responseMimeType: "application/json" }
     });
-
-    return JSON.parse(response.text);
+    return extractJson(getSafeText(response));
 };
 
-// --- Launch Plan & Ad Strategy Service ---
+export const generateLaunchPlan = async (title: string, description: string, keywords: string[], language: Language, apiKey?: string): Promise<{ plan: LaunchDayPlan[], adStrategy: AdStrategyNode }> => {
+    const ai = new GoogleGenAI({ apiKey: getApiKey(apiKey) });
+    const prompt = `Act as an Amazon Advertising Master for the ${language} market.
+    Goal: Create a 60-day omnichannel product launch roadmap to push 5-10 core keywords to Page 1 organic ranking.
 
-export const generateLaunchPlan = async (title: string, description: string, language: Language): Promise<{ plan: LaunchDayPlan[], adStrategy: AdStrategyNode }> => {
-    const model = 'gemini-3-pro-preview'; 
-    const prompt = `
-        Expert Amazon Brand Manager. Create a STRICT 60-Day Launch Plan for ${language} market.
-        Title: "${title}"
-        Description: "${description}"
-        Return STRICT JSON format:
+    Product Details:
+    - Title: ${title}
+    - Description: ${description}
+    - Target Keywords: ${keywords.join(', ')}
+
+    Requirements:
+    1. Roadmap must span 60 days, divided into clear phases.
+    2. Detailed PPC Strategy for EACH Phase:
+       - Auto Ads: Define daily budget ($), specific target CPC ($), and Bidding Strategy (Fixed, Dynamic-down, Dynamic-up/down).
+       - Manual Exact: List 3-5 keywords from the targets above for this phase, specific CPC ($), and Bidding Strategy (Fixed, Dynamic-down).
+       - Manual Phrase: Targeted keyword clusters, specific CPC ($), and Bidding strategy.
+       - Brand Ads (SB/SDV): Target keywords and specific Creative Asset requirements (e.g. "15s Lifestyle Video", "Logo + 3 Products Lifestyle").
+    3. Mindmap: Provide an 'adStrategy' tree for visual architecture.
+
+    Output STRICT JSON with this schema:
+    {
+      "plan": [
         {
-            "plan": [ { "dayRange": "...", "focus": "...", "actions": ["..."], "budget": "...", "metrics": ["..."] } ],
-            "adStrategy": { "name": "...", "budget": "...", "children": [ ... ] }
+          "dayRange": "string",
+          "focus": "string",
+          "actions": ["string"],
+          "budget": "string",
+          "metrics": ["string"],
+          "ppcDetail": {
+             "autoAds": { "budget": "string", "cpc": "string", "strategy": "string" },
+             "manualExact": { "targets": ["string"], "cpc": "string", "strategy": "string", "biddingMethod": "string" },
+             "manualPhrase": { "targets": ["string"], "cpc": "string", "strategy": "string" },
+             "brandAds": { "targets": ["string"], "creative": "string", "assetsRequired": "string" }
+          }
         }
-    `;
+      ],
+      "adStrategy": {
+        "name": "string",
+        "budget": "string",
+        "children": [
+           { "name": "string", "budget": "string", "cpc": "string", "strategy": "string", "targets": ["string"] }
+        ]
+      }
+    }`;
 
     const response = await ai.models.generateContent({
-        model,
+        model: 'gemini-3-pro-preview',
         contents: prompt,
         config: { responseMimeType: "application/json" }
     });
-
-    return JSON.parse(response.text);
+    return extractJson(getSafeText(response));
 };
 
-// --- Video Generation Service (Veo) ---
-
-export const generateMarketingVideo = async (
-    prompt: string,
-    refImages: { data: string; mimeType: string }[] = []
-): Promise<string> => {
-    let model = 'veo-3.1-fast-generate-preview';
-    if (refImages.length > 1) {
-        model = 'veo-3.1-generate-preview';
+export const generateMarketingVideo = async (prompt: string, refImages: { data: string; mimeType: string }[] = [], apiKey?: string): Promise<string> => {
+    const ai = new GoogleGenAI({ apiKey: getApiKey(apiKey) });
+    let operation = await ai.models.generateVideos({
+        model: 'veo-3.1-fast-generate-preview',
+        prompt,
+        image: refImages[0] ? { imageBytes: refImages[0].data, mimeType: refImages[0].mimeType } : undefined,
+        config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
+    });
+    while (!operation.done) {
+        await delay(10000);
+        operation = await ai.operations.getVideosOperation({ operation });
     }
-    
-    try {
-        const payload: any = {
-            model,
-            prompt,
-            config: {
-                numberOfVideos: 1,
-                resolution: '720p',
-                aspectRatio: '16:9'
-            }
-        };
-
-        if (refImages.length === 1) {
-            payload.image = {
-                imageBytes: refImages[0].data,
-                mimeType: refImages[0].mimeType
-            };
-        } else if (refImages.length > 1) {
-            payload.config.referenceImages = refImages.map(img => ({
-                image: {
-                    imageBytes: img.data,
-                    mimeType: img.mimeType
-                },
-                referenceType: VideoGenerationReferenceType.ASSET
-            }));
-        }
-
-        const genAI = new GoogleGenAI({ apiKey: process.env.API_KEY });
-        let operation = await genAI.models.generateVideos(payload);
-        
-        while (!operation.done) {
-            await new Promise(resolve => setTimeout(resolve, 10000));
-            operation = await genAI.operations.getVideosOperation({ operation: operation });
-        }
-        
-        const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
-        if (!downloadLink) throw new Error("Video generation failed.");
-        return downloadLink;
-    } catch (error: any) {
-        console.error("Veo Video Gen Failed:", error);
-        throw error;
-    }
+    return operation.response?.generatedVideos?.[0]?.video?.uri || "";
 };

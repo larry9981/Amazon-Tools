@@ -1,4 +1,3 @@
-
 export type Language = 'English' | 'Japanese' | 'German' | 'French' | 'Spanish' | 'Italian';
 
 export interface KeywordData {
@@ -50,11 +49,37 @@ export interface LaunchDayPlan {
   actions: string[];
   budget: string;
   metrics: string[];
+  ppcDetail?: {
+    autoAds: { 
+      budget: string; 
+      cpc: string; 
+      strategy: string; // e.g. "Dynamic - down only"
+    };
+    manualExact: { 
+      targets: string[]; 
+      cpc: string; 
+      strategy: string; 
+      biddingMethod: string; // e.g. "Fixed", "Up & Down"
+    };
+    manualPhrase: { 
+      targets: string[]; 
+      cpc: string; 
+      strategy: string; 
+    };
+    brandAds: { 
+      targets: string[]; 
+      creative: string; // Description of assets (Video, Lifestyle etc)
+      assetsRequired: string; 
+    };
+  };
 }
 
 export interface AdStrategyNode {
   name: string;
   budget?: string;
+  cpc?: string;
+  strategy?: string;
+  targets?: string[];
   children?: AdStrategyNode[];
 }
 
@@ -65,7 +90,6 @@ export interface LaunchPlanState {
   error: string | null;
 }
 
-// New Interface for sharing data across tabs
 export interface ProductContext {
     title: string;
     description: string;
@@ -73,4 +97,9 @@ export interface ProductContext {
     hasGeneratedContent: boolean;
     uploadedImage: string | null;
     mimeType: string;
+}
+
+export interface ApiKeys {
+  gemini: string;
+  veo: string;
 }
