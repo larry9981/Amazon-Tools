@@ -1,12 +1,11 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Video, PlayCircle, RefreshCw, AlertTriangle, Image as ImageIcon, Plus, Trash2, Info, FileText, Sparkles, CheckCircle, Download, ShieldCheck } from 'lucide-react';
+import { Video, PlayCircle, RefreshCw, AlertTriangle, Plus, Trash2, Download, Zap, Loader2, Info, ExternalLink } from 'lucide-react';
 import { generateMarketingVideo } from '../services/geminiService';
 import { ProductContext } from '../types';
 
 interface VideoStudioProps {
     productContext: ProductContext;
-    apiKey?: string;
 }
 
 interface RefImage {
@@ -15,14 +14,14 @@ interface RefImage {
     id: string;
 }
 
-const VideoStudio: React.FC<VideoStudioProps> = ({ productContext, apiKey }) => {
+const VideoStudio: React.FC<VideoStudioProps> = ({ productContext }) => {
   const [refImages, setRefImages] = useState<RefImage[]>([]);
   const [productDescription, setProductDescription] = useState<string>('');
   const [videoState, setVideoState] = useState<{ isGenerating: boolean; videoUrl: string | null; error: string | null; prompt: string }>({
       isGenerating: false,
       videoUrl: null,
       error: null,
-      prompt: "Cinematic product showcase, slow motion zoom-in, professional studio lighting, detailed texture focus."
+      prompt: "Cinematic product showcase with elegant slow camera motion, professional studio lighting, 4k detail."
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -63,89 +62,86 @@ const VideoStudio: React.FC<VideoStudioProps> = ({ productContext, apiKey }) => 
 
   const handleGenerateVideo = async () => {
       if (!productDescription.trim() && !videoState.prompt.trim()) {
-          setVideoState(prev => ({ ...prev, error: "请输入产品描述或创意提示词。" }));
+          setVideoState(prev => ({ ...prev, error: "请输入描述或提示词" }));
           return;
       }
+      
       setVideoState(prev => ({ ...prev, isGenerating: true, error: null, videoUrl: null }));
+      
       try {
-          const combinedPrompt = `Product Info: ${productDescription}. Script: ${videoState.prompt}`;
-          const imagesToUse = refImages.map(img => ({ data: img.data, mimeType: img.mimeType }));
-          const uri = await generateMarketingVideo(combinedPrompt, imagesToUse, apiKey);
-          setVideoState(prev => ({ ...prev, isGenerating: false, videoUrl: uri }));
-      } catch (err: any) {
-          console.error(err);
-          const errorMsg = err.message || "视频生成失败。";
-          setVideoState(prev => ({ 
-            ...prev, 
-            isGenerating: false, 
-            error: errorMsg.includes("401") ? "API Key 无效或额度不足，请在设置中配置自定义 Key。" : errorMsg
-          }));
-      }
-  };
+          if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
+              const hasKey = await window.aistudio.hasSelectedApiKey();
+              if (!hasKey) {
+                  await window.aistudio.openSelectKey();
+              }
+          }
 
-  const handleDownload = async () => {
-    if (!videoState.videoUrl) return;
-    try {
-        const res = await fetch(`${videoState.videoUrl}&key=${apiKey || process.env.API_KEY}`);
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'AI_Product_Video.mp4';
-        a.click();
-        window.URL.revokeObjectURL(url);
-    } catch (e) {
-        alert("下载失败，请尝试刷新页面。");
-    }
+          const combinedPrompt = `${productDescription}. ${videoState.prompt}`;
+          const imagesToUse = refImages.map(img => ({ data: img.data, mimeType: img.mimeType }));
+          const videoUrl = await generateMarketingVideo(combinedPrompt, imagesToUse);
+          setVideoState(prev => ({ ...prev, isGenerating: false, videoUrl }));
+      } catch (err: any) {
+          console.error("Video Gen Error:", err);
+          let errorMsg = err.message || "视频生成失败";
+          
+          // 处理特定错误：Requested entity was not found.
+          if (errorMsg.includes("Requested entity was not found") || errorMsg.includes("404")) {
+              errorMsg = "API Key 状态异常，正在重新引导选择...";
+              if (window.aistudio) window.aistudio.openSelectKey();
+          }
+
+          setVideoState(prev => ({ ...prev, isGenerating: false, error: errorMsg }));
+      }
   };
 
   return (
-    <div className="max-w-6xl mx-auto animate-fade-in-up">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8">
+    <div className="max-w-6xl mx-auto animate-fade-in-up pb-10">
+        <div className="bg-white rounded-3xl shadow-xl border border-gray-200 p-8">
             <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center">
-                    <div className="p-3 bg-purple-100 rounded-lg mr-4">
-                        <Video className="w-6 h-6 text-purple-600" />
+                    <div className="bg-purple-600 p-3 rounded-2xl mr-4 text-white">
+                        <Video className="w-8 h-8" />
                     </div>
                     <div>
-                        <h2 className="text-2xl font-bold text-gray-800">AI 视频工作室 Pro (Veo 3.1)</h2>
-                        <p className="text-sm text-gray-500">超高清电影级营销视频，支持 16:9 比例渲染。</p>
+                        <h2 className="text-3xl font-black tracking-tight">AI 视频工作室 Pro</h2>
+                        <p className="text-gray-500 font-medium">由 Veo 3.1 驱动的电影级产品视频生成</p>
                     </div>
                 </div>
-                {apiKey ? (
-                    <div className="flex items-center bg-green-50 px-4 py-2 rounded-lg border border-green-100">
-                        <ShieldCheck className="w-4 h-4 text-green-600 mr-2" />
-                        <span className="text-xs text-green-800 font-bold">已使用自定义 Key</span>
-                    </div>
-                ) : (
-                    <div className="flex items-center bg-blue-50 px-4 py-2 rounded-lg border border-blue-100">
-                        <Info className="w-4 h-4 text-blue-600 mr-2" />
-                        <span className="text-xs text-blue-800 font-bold">正在使用系统默认 Key</span>
-                    </div>
-                )}
+                <a 
+                  href="https://ai.google.dev/gemini-api/docs/billing" 
+                  target="_blank" 
+                  rel="noreferrer" 
+                  className="hidden md:flex items-center text-xs font-bold text-amz-blue hover:underline bg-blue-50 px-3 py-2 rounded-lg"
+                >
+                  <Info className="w-4 h-4 mr-2" />
+                  检查计费配置
+                  <ExternalLink className="w-3 h-3 ml-1" />
+                </a>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
                 <div className="space-y-6">
+                    <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 mb-2">
+                        <p className="text-xs text-orange-800 leading-relaxed font-medium">
+                           <b>提示:</b> Veo 视频模型需要 API Key 关联一个已开启结算(Paid Project)的 Google Cloud 项目。如果生成一直失败，请确认您的密钥权限。
+                        </p>
+                    </div>
+
                     <div>
-                        <div className="flex justify-between items-center mb-3">
-                            <label className="text-xs font-bold text-gray-500 uppercase tracking-wider flex items-center">
-                                <ImageIcon className="w-3.5 h-3.5 mr-1.5" /> 参考图片 ({refImages.length}/3)
-                            </label>
-                        </div>
+                        <label className="text-xs font-black text-gray-400 uppercase mb-4 block">1. 参考图片 (建议 1-3 张)</label>
                         <div className="grid grid-cols-3 gap-4">
-                            {refImages.map((img, idx) => (
-                                <div key={img.id} className="relative group aspect-square bg-gray-50 rounded-xl border border-gray-200 overflow-hidden shadow-sm">
-                                    <img src={`data:${img.mimeType};base64,${img.data}`} alt={`Ref ${idx}`} className="w-full h-full object-cover" />
-                                    <button onClick={() => removeImage(img.id)} className="absolute top-2 right-2 p-1.5 bg-white/90 rounded-full text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <Trash2 className="w-3 h-3" />
+                            {refImages.map((img) => (
+                                <div key={img.id} className="relative group aspect-square rounded-xl overflow-hidden border border-gray-100 bg-gray-50 shadow-inner">
+                                    <img src={`data:${img.mimeType};base64,${img.data}`} alt="Ref" className="w-full h-full object-cover" />
+                                    <button onClick={() => removeImage(img.id)} className="absolute top-1 right-1 p-1.5 bg-white/90 rounded-lg text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <Trash2 className="w-4 h-4" />
                                     </button>
                                 </div>
                             ))}
                             {refImages.length < 3 && (
-                                <button onClick={() => fileInputRef.current?.click()} className="aspect-square flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-xl hover:bg-purple-50 group">
-                                    <Plus className="w-6 h-6 text-gray-300 group-hover:text-purple-500 mb-1" />
-                                    <span className="text-[10px] text-gray-400 font-bold">添加参考</span>
+                                <button onClick={() => fileInputRef.current?.click()} className="aspect-square flex flex-col items-center justify-center border-2 border-dashed border-gray-200 rounded-xl hover:bg-purple-50 transition-colors">
+                                    <Plus className="w-8 h-8 text-gray-300" />
+                                    <span className="text-[10px] font-bold text-gray-400 mt-2">添加</span>
                                 </button>
                             )}
                         </div>
@@ -153,57 +149,60 @@ const VideoStudio: React.FC<VideoStudioProps> = ({ productContext, apiKey }) => 
                     </div>
 
                     <div>
-                        <label className="text-xs font-bold text-gray-500 mb-2 block uppercase tracking-wider">产品核心描述</label>
-                        <textarea value={productDescription} onChange={(e) => setProductDescription(e.target.value)} className="w-full p-4 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 bg-gray-50 focus:bg-white" rows={3} placeholder="输入产品核心卖点..." />
-                    </div>
-
-                    <div>
-                        <label className="text-xs font-bold text-gray-500 mb-2 block uppercase tracking-wider">创意提示词 (Veo Prompt)</label>
-                        <textarea value={videoState.prompt} onChange={(e) => setVideoState(prev => ({...prev, prompt: e.target.value}))} className="w-full p-4 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-purple-500 bg-gray-50 focus:bg-white" rows={3} placeholder="描述视频的运镜、灯光、氛围..." />
+                        <label className="text-xs font-black text-gray-400 uppercase mb-3 block">2. 创意描述</label>
+                        <textarea 
+                            value={videoState.prompt} 
+                            onChange={(e) => setVideoState(prev => ({...prev, prompt: e.target.value}))} 
+                            className="w-full h-32 p-4 bg-gray-50 border border-gray-200 rounded-2xl text-sm focus:ring-2 focus:ring-purple-500 outline-none"
+                            placeholder="描述视频中的动作，例如：'产品缓慢旋转，阳光穿过玻璃窗...'"
+                        />
                     </div>
 
                     <button 
                         onClick={handleGenerateVideo} 
                         disabled={videoState.isGenerating} 
-                        className="w-full py-4 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold flex items-center justify-center shadow-lg transition-all active:scale-95 disabled:opacity-50"
+                        className="w-full py-4 bg-purple-600 text-white rounded-2xl font-bold text-lg hover:bg-purple-700 transition-all flex items-center justify-center shadow-lg shadow-purple-100"
                     >
-                        {videoState.isGenerating ? <><RefreshCw className="animate-spin w-5 h-5 mr-3" /> 正在渲染 720p 视频...</> : <><PlayCircle className="w-5 h-5 mr-3" /> 启动高画质生成</>}
+                        {videoState.isGenerating ? (
+                            <><Loader2 className="animate-spin w-5 h-5 mr-3" /> 云端渲染中 (约 2-5 分钟)...</>
+                        ) : (
+                            <><Zap className="w-5 h-5 mr-3" /> 开始生成视频</>
+                        )}
                     </button>
                     
                     {videoState.error && (
-                        <div className="p-4 bg-red-50 border border-red-100 rounded-xl flex gap-3 animate-shake">
-                            <AlertTriangle className="w-5 h-5 text-red-500 flex-shrink-0" />
-                            <p className="text-xs text-red-700 leading-relaxed">{videoState.error}</p>
+                        <div className="p-4 bg-red-50 border border-red-100 rounded-2xl flex gap-3 text-red-700 text-sm">
+                            <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+                            <div className="flex flex-col">
+                                <p className="font-bold">生成异常</p>
+                                <p className="opacity-80">{videoState.error}</p>
+                            </div>
                         </div>
                     )}
                 </div>
 
-                <div className="flex flex-col h-full">
-                    <label className="text-xs font-bold text-gray-500 mb-2 block uppercase tracking-wider">预览监视器</label>
-                    <div className="flex-1 min-h-[400px] bg-black rounded-2xl overflow-hidden flex items-center justify-center relative shadow-2xl">
-                        {videoState.isGenerating ? (
-                            <div className="text-white flex flex-col items-center text-center animate-pulse">
-                                <div className="relative w-20 h-20 mb-6">
-                                    <div className="absolute inset-0 border-4 border-purple-500/20 rounded-full animate-ping"></div>
-                                    <Video className="absolute inset-0 m-auto w-8 h-8 text-purple-400" />
-                                </div>
-                                <h3 className="text-lg font-bold mb-2">Veo 正在构图...</h3>
-                                <p className="text-xs text-gray-400">大约需要 2-3 分钟</p>
-                            </div>
-                        ) : videoState.videoUrl ? (
-                            <div className="w-full h-full relative group">
-                                <video src={`${videoState.videoUrl}&key=${apiKey || process.env.API_KEY}`} controls className="w-full h-full object-contain" />
-                                <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={handleDownload} className="p-2 bg-purple-600 text-white rounded-full shadow-xl hover:scale-110 transition-transform"><Download className="w-5 h-5" /></button>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="text-gray-600 flex flex-col items-center">
-                                <Video className="w-10 h-10 opacity-10 mb-4" />
-                                <span className="text-sm">就绪</span>
-                            </div>
-                        )}
-                    </div>
+                <div className="bg-gray-50 rounded-3xl border border-gray-200 flex flex-col items-center justify-center relative overflow-hidden min-h-[400px]">
+                    {videoState.videoUrl ? (
+                        <div className="w-full h-full relative group">
+                            <video src={videoState.videoUrl} controls autoPlay loop className="w-full h-full object-contain" />
+                            <a href={videoState.videoUrl} download="product_video.mp4" className="absolute top-4 right-4 p-3 bg-white/90 rounded-2xl shadow-xl text-purple-600 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Download className="w-6 h-6" />
+                            </a>
+                        </div>
+                    ) : (
+                        <div className="text-center p-10 opacity-30">
+                            <PlayCircle className="w-20 h-20 mx-auto mb-4" />
+                            <p className="text-sm font-bold uppercase tracking-widest">视频生成监控</p>
+                            <p className="text-[10px] mt-2">点击左侧生成按钮后，此区域将实时显示渲染结果</p>
+                        </div>
+                    )}
+                    {videoState.isGenerating && (
+                        <div className="absolute inset-0 bg-white/60 backdrop-blur-sm flex flex-col items-center justify-center p-6 text-center">
+                            <div className="w-16 h-16 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mb-4"></div>
+                            <p className="text-sm font-black text-purple-600 animate-pulse">VEO 渲染引擎运行中...</p>
+                            <p className="text-[10px] text-gray-500 mt-2 max-w-xs">正在进行复杂的物理模拟和光影追踪，请保持窗口开启。</p>
+                        </div>
+                    )}
                 </div>
             </div>
         </div>

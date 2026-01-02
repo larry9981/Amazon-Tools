@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { generateKeywords } from './services/geminiService';
-import { SearchState, GroundingSource, Language, ProductContext, ApiKeys } from './types';
+import { SearchState, GroundingSource, Language, ProductContext } from './types';
 import SearchBar from './components/SearchBar';
 import KeywordTable from './components/KeywordTable';
 import DashboardStats from './components/DashboardStats';
@@ -9,19 +9,13 @@ import ImageGenerator from './components/ImageGenerator';
 import VideoStudio from './components/VideoStudio';
 import LaunchPlanner from './components/LaunchPlanner';
 import CustomServices from './components/CustomServices';
-import SettingsModal from './components/SettingsModal';
-import { ShoppingCart, AlertCircle, Search, Wand2, Rocket, Globe, Briefcase, PlaySquare, Settings } from 'lucide-react';
+import { ShoppingCart, AlertCircle, Search, Wand2, Rocket, Globe, Briefcase, PlaySquare } from 'lucide-react';
 
 type ActiveTab = 'keywords' | 'content' | 'video' | 'launch' | 'custom';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<ActiveTab>('keywords');
   const [language, setLanguage] = useState<Language>('English');
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [apiKeys, setApiKeys] = useState<ApiKeys>({
-    gemini: localStorage.getItem('gemini_key') || '',
-    veo: localStorage.getItem('veo_key') || ''
-  });
   
   const [state, setState] = useState<SearchState>({
     isLoading: false,
@@ -40,16 +34,10 @@ const App: React.FC = () => {
       mimeType: 'image/png'
   });
 
-  const saveKeys = (keys: ApiKeys) => {
-    setApiKeys(keys);
-    localStorage.setItem('gemini_key', keys.gemini);
-    localStorage.setItem('veo_key', keys.veo);
-  };
-
   const handleSearch = async (term: string) => {
     setState(prev => ({ ...prev, isLoading: true, error: null, seedKeyword: term }));
     try {
-      const result = await generateKeywords(term, language, apiKeys.gemini);
+      const result = await generateKeywords(term, language);
       setState(prev => ({ ...prev, isLoading: false, data: result.keywords }));
       setSources(result.sources);
       setProductContext(prev => ({ ...prev, keywords: result.keywords.map(k => k.keyword) }));
@@ -65,7 +53,7 @@ const App: React.FC = () => {
   const TabButton = ({ id, icon: Icon, label }: { id: ActiveTab, icon: any, label: string }) => (
       <button 
         onClick={() => setActiveTab(id)}
-        className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center ${activeTab === id ? 'bg-amz-light text-white' : 'text-gray-300 hover:text-white hover:bg-amz-light'}`}
+        className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center ${activeTab === id ? 'bg-amz-orange text-amz-dark' : 'text-gray-300 hover:text-white hover:bg-amz-light'}`}
     >
         <Icon className="w-4 h-4 mr-2" />
         <span className="hidden lg:inline">{label}</span>
@@ -92,12 +80,12 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-4">
-             <div className="hidden sm:flex items-center">
+             <div className="flex items-center bg-amz-light rounded-lg px-2 py-1">
                 <Globe className="w-4 h-4 text-gray-400 mr-1" />
                 <select 
                     value={language} 
                     onChange={(e) => setLanguage(e.target.value as Language)}
-                    className="bg-amz-light text-white text-xs border-none rounded focus:ring-1 focus:ring-amz-orange py-1 px-2"
+                    className="bg-transparent text-white text-xs border-none focus:ring-0 py-1 px-1 cursor-pointer"
                 >
                     <option value="English">English</option>
                     <option value="Japanese">Japanese</option>
@@ -107,9 +95,6 @@ const App: React.FC = () => {
                     <option value="Italian">Italian</option>
                 </select>
              </div>
-             <button onClick={() => setIsSettingsOpen(true)} className="p-2 hover:bg-white/10 rounded-full transition-colors text-gray-300 hover:text-white">
-                <Settings className="w-5 h-5" />
-             </button>
           </div>
         </div>
       </header>
@@ -149,12 +134,11 @@ const App: React.FC = () => {
                 language={language} 
                 seedKeywords={productContext.keywords}
                 onListingGenerated={handleContentUpdate}
-                apiKey={apiKeys.gemini}
             />
         </div>
 
         <div className={activeTab === 'video' ? 'block' : 'hidden'}>
-            <VideoStudio productContext={productContext} apiKey={apiKeys.veo} />
+            <VideoStudio productContext={productContext} />
         </div>
 
         <div className={activeTab === 'launch' ? 'block' : 'hidden'}>
@@ -162,7 +146,6 @@ const App: React.FC = () => {
                 language={language} 
                 productContext={productContext}
                 setActiveTab={setActiveTab}
-                apiKey={apiKeys.gemini}
             />
         </div>
 
@@ -170,13 +153,6 @@ const App: React.FC = () => {
             <CustomServices />
         </div>
       </main>
-
-      <SettingsModal 
-        isOpen={isSettingsOpen} 
-        onClose={() => setIsSettingsOpen(false)} 
-        keys={apiKeys} 
-        onSave={saveKeys} 
-      />
     </div>
   );
 };

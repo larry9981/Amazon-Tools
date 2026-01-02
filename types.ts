@@ -1,10 +1,11 @@
+
 export type Language = 'English' | 'Japanese' | 'German' | 'French' | 'Spanish' | 'Italian';
 
 export interface KeywordData {
   keyword: string;
-  searchVolume: number; // 0-100 scale estimate
+  searchVolume: number; // 0-100 比例估算
   competition: 'Low' | 'Medium' | 'High';
-  cpc: number; // Estimated cost per click
+  cpc: number; // 预估点击成本
   intent: 'Commercial' | 'Informational' | 'Transactional';
   tier: 'Tier 1 (Head)' | 'Tier 2 (Middle)' | 'Tier 3 (Long-tail)';
 }
@@ -21,26 +22,9 @@ export interface GroundingSource {
   url: string;
 }
 
-export interface GeneratedImage {
-  id: number;
-  label: string;
-  imageUrl: string | null;
-  isLoading: boolean;
-}
-
-export interface ImageGeneratorState {
-  isGenerating: boolean;
-  error: string | null;
-  description: string;
-  uploadedImage: string | null; // Base64
-  mimeType: string;
-  mainImages: GeneratedImage[];
-  aplusImages: GeneratedImage[];
-}
-
 export interface ListingContent {
   title: string;
-  bullets: string[]; // Array of 5 strings
+  bullets: string[];
 }
 
 export interface LaunchDayPlan {
@@ -49,27 +33,26 @@ export interface LaunchDayPlan {
   actions: string[];
   budget: string;
   metrics: string[];
-  ppcDetail?: {
-    autoAds: { 
-      budget: string; 
-      cpc: string; 
-      strategy: string; // e.g. "Dynamic - down only"
+  ppcDetail: {
+    autoAds: {
+      budget: string;
+      cpc: string;
+      strategy: string; // "Fixed", "Dynamic Up/Down", "Dynamic Down Only"
     };
-    manualExact: { 
-      targets: string[]; 
-      cpc: string; 
-      strategy: string; 
-      biddingMethod: string; // e.g. "Fixed", "Up & Down"
+    manualExact: {
+      targets: string[];
+      cpc: string;
+      strategy: string;
     };
-    manualPhrase: { 
-      targets: string[]; 
-      cpc: string; 
-      strategy: string; 
+    manualPhrase: {
+      targets: string[];
+      cpc: string;
+      strategy: string;
     };
-    brandAds: { 
-      targets: string[]; 
-      creative: string; // Description of assets (Video, Lifestyle etc)
-      assetsRequired: string; 
+    brandAds: {
+      targets: string[];
+      creative: string; // 素材定义
+      roadmap60: string; // 60天规划描述
     };
   };
 }
@@ -81,13 +64,6 @@ export interface AdStrategyNode {
   strategy?: string;
   targets?: string[];
   children?: AdStrategyNode[];
-}
-
-export interface LaunchPlanState {
-  isLoading: boolean;
-  plan: LaunchDayPlan[];
-  adStrategy: AdStrategyNode | null;
-  error: string | null;
 }
 
 export interface ProductContext {
@@ -102,4 +78,27 @@ export interface ProductContext {
 export interface ApiKeys {
   gemini: string;
   veo: string;
+}
+
+/**
+ * Image item for generator state
+ */
+export interface ImageItem {
+  id: number;
+  label: string;
+  imageUrl: string | null;
+  isLoading: boolean;
+}
+
+/**
+ * State for the Image Generator component
+ */
+export interface ImageGeneratorState {
+  isGenerating: boolean;
+  error: string | null;
+  description: string;
+  uploadedImage: string | null;
+  mimeType: string;
+  mainImages: ImageItem[];
+  aplusImages: ImageItem[];
 }

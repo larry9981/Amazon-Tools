@@ -1,100 +1,73 @@
-import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
+
+import { GoogleGenAI } from "@google/genai";
 import { KeywordData, GroundingSource, ListingContent, LaunchDayPlan, AdStrategyNode, Language } from "../types";
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-const getApiKey = (customKey?: string) => {
-  if (typeof customKey === 'string' && customKey.trim().length > 5) return customKey.trim();
-  return process.env.API_KEY || "";
-};
-
-const getSafeText = (response: GenerateContentResponse): string => {
-  try {
-    const candidates = response?.candidates;
-    if (!candidates || candidates.length === 0) return "";
-    const firstCandidate = candidates[0];
-    if (!firstCandidate?.content?.parts) return "";
-    const textPart = firstCandidate.content.parts.find(part => typeof part.text === 'string');
-    return textPart?.text || "";
-  } catch (error) {
-    return "";
-  }
-};
-
 /**
- * Robust JSON extraction from AI responses.
- * Finds the actual JSON block even if there is trailing commentary or markdown.
+ * 健壮的 JSON 提取工具：寻找最外层匹配的 { } 或 [ ]
  */
 const extractJson = (text: string): any => {
   try {
     const t = text.trim();
-    // Use regex to find the outermost matching braces/brackets
-    const jsonObjectMatch = t.match(/\{[\s\S]*\}/);
-    const jsonArrayMatch = t.match(/\[[\s\S]*\]/);
+    const firstBrace = t.indexOf('{');
+    const firstBracket = t.indexOf('[');
     
-    let jsonStr = "";
-    if (jsonObjectMatch && jsonArrayMatch) {
-      // Pick the one that starts earlier
-      jsonStr = jsonObjectMatch.index! < jsonArrayMatch.index! ? jsonObjectMatch[0] : jsonArrayMatch[0];
-    } else if (jsonObjectMatch) {
-      jsonStr = jsonObjectMatch[0];
-    } else if (jsonArrayMatch) {
-      jsonStr = jsonArrayMatch[0];
-    } else {
-      jsonStr = t;
+    let start = -1;
+    if (firstBrace !== -1 && (firstBracket === -1 || firstBrace < firstBracket)) {
+      start = firstBrace;
+    } else if (firstBracket !== -1) {
+      start = firstBracket;
     }
 
-    // Clean up potential trailing backticks or garbage
-    // This often happens with Markdown code blocks
-    if (jsonStr.endsWith('```')) jsonStr = jsonStr.slice(0, -3);
-    
-    return JSON.parse(jsonStr.trim());
+    if (start === -1) throw new Error("No JSON structure found in response");
+
+    const lastBrace = t.lastIndexOf('}');
+    const lastBracket = t.lastIndexOf(']');
+    const end = Math.max(lastBrace, lastBracket);
+
+    const jsonStr = t.substring(start, end + 1);
+    const cleanJson = jsonStr.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+    return JSON.parse(cleanJson);
   } catch (e) {
-    console.error("JSON Extraction Error:", e, "Source text snippet:", text.substring(0, 200));
-    throw new Error("AI 返回数据解析失败。建议检查 API Key 或稍后重试。");
+    console.error("JSON parse failed. Original text:", text);
+    throw new Error("AI 数据格式化失败，请稍后重试。");
   }
 };
 
-export const generateKeywords = async (seedKeyword: string, language: Language, apiKey?: string): Promise<{keywords: KeywordData[], sources: GroundingSource[]}> => {
-  try {
-    const ai = new GoogleGenAI({ apiKey: getApiKey(apiKey) });
-    const prompt = `Act as an expert Amazon SEO analyst for the ${language} market. Analyze "${seedKeyword}". Return STRICT JSON array of 20 keywords with searchVolume (0-100), competition (Low, Medium, High), cpc, intent, tier.`;
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: { tools: [{ googleSearch: {} }], temperature: 0.3 },
-    });
-    const text = getSafeText(response);
-    const chunks = response?.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-    const sources: GroundingSource[] = chunks.map((c: any) => c.web ? { title: c.web.title, url: c.web.uri } : null).filter(Boolean);
-    
-    const keywords = extractJson(text);
-    return { keywords, sources };
-  } catch (error) { throw error; }
+/**
+ * Generate keywords with Search Grounding using gemini-3-flash-preview
+ */
+export const generateKeywords = async (seedKeyword: string, language: Language): Promise<{keywords: KeywordData[], sources: GroundingSource[]}> => {
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const prompt = `你是一位亚马逊 SEO 专家。分析关键词 "${seedKeyword}"。使用 Google Search 获取最新数据。
+  返回一个 JSON 数组，包含 20 个关键词，字段包括: keyword, searchVolume (0-100), competition (Low, Medium, High), cpc (数字), intent, tier (Tier 1/2/3)。
+  市场语言: ${language}。`;
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-flash-preview',
+    contents: prompt,
+    config: { tools: [{ googleSearch: {} }], temperature: 0.3 },
+  });
+
+  const text = response.text || "";
+  const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+  const sources: GroundingSource[] = chunks.map((c: any) => c.web ? { title: c.web.title, url: c.web.uri } : null).filter(Boolean);
+  
+  return { keywords: extractJson(text), sources };
 };
 
-export const generateSingleImage = async (
-  base64Image: string, 
-  mimeType: string, 
-  prompt: string, 
-  isWide: boolean = false, 
-  apiKey?: string
-): Promise<string> => {
-    const finalKey = getApiKey(apiKey);
-    const ai = new GoogleGenAI({ apiKey: finalKey });
-    
-    const compositionPrompt = isWide 
-        ? "Cinematic wide panoramic composition, professional Amazon A+ Content banner, 2928x1200 resolution aesthetic, sharp focus on product features."
-        : "Square high-end commercial product shot, professional studio lighting, 2K resolution quality.";
-
-    const enhancedPrompt = `${prompt}. ${compositionPrompt}. High-end commercial photography, 8K resolution, sharp focus, professional lighting.`;
-    
+/**
+ * Generate a single high-quality image using gemini-3-pro-image-preview
+ */
+export const generateSingleImage = async (base64Image: string, mimeType: string, prompt: string, isWide: boolean = false): Promise<string> => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const response = await ai.models.generateContent({
         model: 'gemini-3-pro-image-preview',
         contents: {
             parts: [
                 { inlineData: { data: base64Image, mimeType } },
-                { text: enhancedPrompt }
+                { text: `${prompt}. Cinematic commercial style, high-end studio lighting, 2K resolution.` }
             ]
         },
         config: {
@@ -105,88 +78,85 @@ export const generateSingleImage = async (
         }
     });
 
-    const parts = response.candidates?.[0]?.content?.parts || [];
-    const imagePart = parts.find(p => p.inlineData);
-    if (!imagePart) throw new Error("No image data returned");
+    const imagePart = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
+    if (!imagePart || !imagePart.inlineData) throw new Error("No image returned");
     return `data:image/png;base64,${imagePart.inlineData.data}`;
 };
 
+/**
+ * Generate multiple scene images
+ */
 export const generateSceneImages = async (
-  base64Image: string,
-  mimeType: string,
-  productDescription: string,
-  scenes: { id: number; promptSuffix: string }[],
-  isWide: boolean = false,
+  base64Image: string, 
+  mimeType: string, 
+  productDescription: string, 
+  scenes: { id: number; promptSuffix: string }[], 
+  isWide: boolean = false, 
   apiKey?: string,
-  customPromptOverrides: { [key: number]: string } = {}
+  customPrompts: { [key: number]: string } = {}
 ): Promise<{ id: number; imageUrl: string }[]> => {
-  const results: { id: number; imageUrl: string }[] = [];
+  const results = [];
   for (const scene of scenes) {
-    const prompt = `Product: ${productDescription}. Scene: ${customPromptOverrides[scene.id] || scene.promptSuffix}`;
     try {
-      const imageUrl = await generateSingleImage(base64Image, mimeType, prompt, isWide, apiKey);
-      results.push({ id: scene.id, imageUrl });
-      await delay(1200); 
-    } catch (error) {
-      console.error(`Error generating image for scene ${scene.id}:`, error);
+      const scenePrompt = customPrompts[scene.id] || scene.promptSuffix;
+      const url = await generateSingleImage(base64Image, mimeType, `Product: ${productDescription}. Scene: ${scenePrompt}`, isWide);
+      results.push({ id: scene.id, imageUrl: url });
+      await delay(1000);
+    } catch (e) {
       results.push({ id: scene.id, imageUrl: "" });
     }
   }
   return results;
 };
 
-export const generateListingContent = async (description: string, keywords: string[], language: Language, apiKey?: string): Promise<ListingContent> => {
-    const ai = new GoogleGenAI({ apiKey: getApiKey(apiKey) });
-    const prompt = `Amazon SEO Expert. Language: ${language}. Optimize for: ${keywords.join(',')}. Product: ${description}. Output JSON: {title: string, bullets: string[]}`;
+/**
+ * Generate SEO listing content
+ */
+export const generateListingContent = async (description: string, keywords: string[], language: Language): Promise<ListingContent> => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const prompt = `亚马逊文案专家。语言: ${language}。根据以下描述和关键词 [${keywords.join(',')}]，生成产品标题和 5 个 Bullet Points。
+    返回 JSON: { "title": "...", "bullets": ["...", "...", "...", "...", "..."] }。内容: ${description}`;
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
         config: { responseMimeType: "application/json" }
     });
-    return extractJson(getSafeText(response));
+    return extractJson(response.text || "");
 };
 
-export const generateLaunchPlan = async (title: string, description: string, keywords: string[], language: Language, apiKey?: string): Promise<{ plan: LaunchDayPlan[], adStrategy: AdStrategyNode }> => {
-    const ai = new GoogleGenAI({ apiKey: getApiKey(apiKey) });
-    const prompt = `Act as an Amazon Advertising Master for the ${language} market.
-    Goal: Create a 60-day omnichannel product launch roadmap to push 5-10 core keywords to Page 1 organic ranking.
+/**
+ * Generate a 60-day launch plan using gemini-3-pro-preview with specific structure requirements
+ */
+export const generateLaunchPlan = async (title: string, description: string, keywords: string[], language: Language): Promise<{ plan: LaunchDayPlan[], adStrategy: AdStrategyNode }> => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const prompt = `你是一位亚马逊全渠道广告大师。请为 ${language} 市场的以下新品制定为期 60 天的爆发式推广路线图。
+    产品标题: ${title}
+    核心描述: ${description}
+    关键词池: ${keywords.join(', ')}
 
-    Product Details:
-    - Title: ${title}
-    - Description: ${description}
-    - Target Keywords: ${keywords.join(', ')}
-
-    Requirements:
-    1. Roadmap must span 60 days, divided into clear phases.
-    2. Detailed PPC Strategy for EACH Phase:
-       - Auto Ads: Define daily budget ($), specific target CPC ($), and Bidding Strategy (Fixed, Dynamic-down, Dynamic-up/down).
-       - Manual Exact: List 3-5 keywords from the targets above for this phase, specific CPC ($), and Bidding Strategy (Fixed, Dynamic-down).
-       - Manual Phrase: Targeted keyword clusters, specific CPC ($), and Bidding strategy.
-       - Brand Ads (SB/SDV): Target keywords and specific Creative Asset requirements (e.g. "15s Lifestyle Video", "Logo + 3 Products Lifestyle").
-    3. Mindmap: Provide an 'adStrategy' tree for visual architecture.
-
-    Output STRICT JSON with this schema:
+    请严格按以下 JSON 结构返回（确保 plan 数组包含 4 个阶段，adStrategy 是树形结构）：
     {
       "plan": [
         {
-          "dayRange": "string",
-          "focus": "string",
-          "actions": ["string"],
-          "budget": "string",
-          "metrics": ["string"],
+          "dayRange": "1-7",
+          "focus": "...",
+          "actions": ["..."],
+          "budget": "$...",
+          "metrics": ["..."],
           "ppcDetail": {
-             "autoAds": { "budget": "string", "cpc": "string", "strategy": "string" },
-             "manualExact": { "targets": ["string"], "cpc": "string", "strategy": "string", "biddingMethod": "string" },
-             "manualPhrase": { "targets": ["string"], "cpc": "string", "strategy": "string" },
-             "brandAds": { "targets": ["string"], "creative": "string", "assetsRequired": "string" }
+            "autoAds": { "budget": "$...", "cpc": "$...", "strategy": "..." },
+            "manualExact": { "targets": ["...", "..."], "cpc": "$...", "strategy": "..." },
+            "manualPhrase": { "targets": ["..."], "cpc": "$...", "strategy": "..." },
+            "brandAds": { "targets": ["..."], "creative": "...", "roadmap60": "..." }
           }
         }
       ],
       "adStrategy": {
-        "name": "string",
-        "budget": "string",
+        "name": "Campaign Portfolio",
+        "budget": "$...",
         "children": [
-           { "name": "string", "budget": "string", "cpc": "string", "strategy": "string", "targets": ["string"] }
+          { "name": "Auto Research", "budget": "$...", "strategy": "..." },
+          { "name": "Manual Ranking", "children": [...] }
         ]
       }
     }`;
@@ -194,22 +164,67 @@ export const generateLaunchPlan = async (title: string, description: string, key
     const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         contents: prompt,
-        config: { responseMimeType: "application/json" }
+        config: { 
+            responseMimeType: "application/json",
+            temperature: 0.7 
+        }
     });
-    return extractJson(getSafeText(response));
+    
+    const text = response.text || "";
+    if (!text) throw new Error("AI 未返回有效计划数据");
+    
+    return extractJson(text);
 };
 
-export const generateMarketingVideo = async (prompt: string, refImages: { data: string; mimeType: string }[] = [], apiKey?: string): Promise<string> => {
-    const ai = new GoogleGenAI({ apiKey: getApiKey(apiKey) });
-    let operation = await ai.models.generateVideos({
-        model: 'veo-3.1-fast-generate-preview',
-        prompt,
-        image: refImages[0] ? { imageBytes: refImages[0].data, mimeType: refImages[0].mimeType } : undefined,
-        config: { numberOfVideos: 1, resolution: '720p', aspectRatio: '16:9' }
-    });
-    while (!operation.done) {
-        await delay(10000);
-        operation = await ai.operations.getVideosOperation({ operation });
+/**
+ * Generate product video using Veo 3.1 with enhanced error tracking
+ */
+export const generateMarketingVideo = async (prompt: string, refImages: { data: string; mimeType: string }[] = []): Promise<string> => {
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    try {
+        let operation = await ai.models.generateVideos({
+            model: 'veo-3.1-fast-generate-preview',
+            prompt: `Cinematic commercial product video: ${prompt}. Professional slow motion, sharp focus, vibrant colors, 4k texture detail.`,
+            image: refImages[0] ? { imageBytes: refImages[0].data, mimeType: refImages[0].mimeType } : undefined,
+            config: {
+                numberOfVideos: 1,
+                resolution: '720p',
+                aspectRatio: '16:9'
+            }
+        });
+
+        let attempts = 0;
+        const maxAttempts = 60; // 10 minutes
+
+        while (!operation.done && attempts < maxAttempts) {
+            await delay(10000);
+            operation = await ai.operations.getVideosOperation({ operation: operation });
+            attempts++;
+            
+            if (operation.error) {
+                throw new Error(`Veo 生成器返回错误: ${operation.error.message || '未知服务器错误'}`);
+            }
+        }
+
+        if (!operation.done) {
+            throw new Error("视频生成超时（超过 10 分钟），请稍后再试。");
+        }
+
+        if (operation.error) {
+            throw new Error(`生成失败: ${operation.error.message}`);
+        }
+
+        const downloadLink = operation.response?.generatedVideos?.[0]?.video?.uri;
+        if (!downloadLink) {
+            throw new Error("视频生成任务已完成，但未返回下载链接。");
+        }
+        
+        return `${downloadLink}&key=${process.env.API_KEY}`;
+    } catch (e: any) {
+        if (e.message?.includes("403") || e.message?.includes("permission")) {
+            throw new Error("权限不足：请确保您的 API Key 来自一个已开启计费(Billing)的项目。");
+        }
+        throw e;
     }
-    return operation.response?.generatedVideos?.[0]?.video?.uri || "";
 };

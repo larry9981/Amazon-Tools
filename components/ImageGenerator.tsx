@@ -1,6 +1,6 @@
 
-import React, { useState, useRef, useEffect } from 'react';
-import { Upload, Image as ImageIcon, Sparkles, Download, RefreshCw, X, FileText, Copy, ListFilter, Trash2, CheckCircle, AlertTriangle, FileSpreadsheet, FileType, Search } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { Upload, Image as ImageIcon, Sparkles, Download, RefreshCw, X, FileText, Copy, ListFilter, Trash2, CheckCircle, AlertTriangle, Search } from 'lucide-react';
 import { generateSceneImages, generateListingContent, generateSingleImage } from '../services/geminiService';
 import { ImageGeneratorState, Language, ListingContent } from '../types';
 
@@ -27,10 +27,9 @@ interface ImageGeneratorProps {
     language: Language;
     seedKeywords: string[];
     onListingGenerated: (title: string, description: string, uploadedImage: string | null, mimeType: string) => void;
-    apiKey?: string;
 }
 
-const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords, onListingGenerated, apiKey }) => {
+const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords, onListingGenerated }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [state, setState] = useState<ImageGeneratorState>({
@@ -47,14 +46,15 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
   const [customPrompts, setCustomPrompts] = useState<{ [key: number]: string }>({});
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
+  /**
+   * Handle API Key selection for high-quality models
+   */
   const checkAndPromptKey = async () => {
     if (window.aistudio && typeof window.aistudio.hasSelectedApiKey === 'function') {
       if (!(await window.aistudio.hasSelectedApiKey())) {
         await window.aistudio.openSelectKey();
-        return true; 
       }
     }
-    return false;
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -86,11 +86,12 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
     }));
 
     try {
-      const listingRes = await generateListingContent(state.description, seedKeywords, language, apiKey);
+      const listingRes = await generateListingContent(state.description, seedKeywords, language);
       setListing(listingRes);
       onListingGenerated(listingRes.title, state.description, state.uploadedImage, state.mimeType);
 
-      const mainRes = await generateSceneImages(state.uploadedImage, state.mimeType, state.description, MAIN_IMAGE_SCENES, false, apiKey, customPrompts);
+      // Fix: pass 7 arguments to include customPrompts properly
+      const mainRes = await generateSceneImages(state.uploadedImage, state.mimeType, state.description, MAIN_IMAGE_SCENES, false, undefined, customPrompts);
       setState(prev => ({
         ...prev,
         mainImages: prev.mainImages.map(img => ({ 
@@ -98,7 +99,8 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
         }))
       }));
 
-      const aplusRes = await generateSceneImages(state.uploadedImage, state.mimeType, state.description, APLUS_IMAGE_SCENES, true, apiKey, customPrompts);
+      // Fix: pass 7 arguments to include customPrompts properly
+      const aplusRes = await generateSceneImages(state.uploadedImage, state.mimeType, state.description, APLUS_IMAGE_SCENES, true, undefined, customPrompts);
       setState(prev => ({
         ...prev,
         isGenerating: false,
@@ -107,7 +109,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
         }))
       }));
     } catch (err: any) {
-      setState(prev => ({ ...prev, isGenerating: false, error: "生成失败，请检查密钥设置。" }));
+      setState(prev => ({ ...prev, isGenerating: false, error: "生成失败，请稍后重试。" }));
     }
   };
 
@@ -115,17 +117,17 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
     if (!state.uploadedImage) return;
     await checkAndPromptKey();
 
-    const updateImages = (list: any[]) => list.map(img => img.id === id ? { ...img, isLoading: true } : img);
+    const updateLoadingState = (list: any[]) => list.map(img => img.id === id ? { ...img, isLoading: true } : img);
     setState(prev => ({
         ...prev,
-        mainImages: isWide ? prev.mainImages : updateImages(prev.mainImages),
-        aplusImages: isWide ? updateImages(prev.aplusImages) : prev.aplusImages
+        mainImages: isWide ? prev.mainImages : updateLoadingState(prev.mainImages),
+        aplusImages: isWide ? updateLoadingState(prev.aplusImages) : prev.aplusImages
     }));
 
     try {
         const scene = [...MAIN_IMAGE_SCENES, ...APLUS_IMAGE_SCENES].find(s => s.id === id);
         const prompt = `Product: ${state.description}. Scene: ${customPrompts[id] || scene?.promptSuffix}`;
-        const imageUrl = await generateSingleImage(state.uploadedImage, state.mimeType, prompt, isWide, apiKey);
+        const imageUrl = await generateSingleImage(state.uploadedImage, state.mimeType, prompt, isWide);
         
         setState(prev => ({
             ...prev,
@@ -142,7 +144,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
   };
 
   const bulkDownload = (images: { imageUrl: string | null; label: string }[]) => {
-      images.forEach((img, idx) => {
+      images.forEach((img) => {
           if (img.imageUrl) {
               const link = document.createElement('a');
               link.href = img.imageUrl;
@@ -171,7 +173,6 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
                           <span className="text-sm text-gray-700 font-medium truncate flex-1">{kw}</span>
                           <button onClick={() => {
                               navigator.clipboard.writeText(kw);
-                              // Simple feedback
                           }} className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-gray-100 rounded-lg transition-opacity">
                               <Copy className="w-4 h-4 text-gray-400" />
                           </button>
@@ -197,7 +198,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
       <div className="flex-1 min-w-0 space-y-8 order-1 xl:order-2">
         {lightboxImage && (
             <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4 cursor-zoom-out" onClick={() => setLightboxImage(null)}>
-                <img src={lightboxImage} className="max-w-full max-h-full object-contain" />
+                <img src={lightboxImage} alt="Enlarged" className="max-w-full max-h-full object-contain" />
                 <button className="absolute top-6 right-6 text-white"><X className="w-10 h-10" /></button>
             </div>
         )}
@@ -239,7 +240,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
                             </div>
                         ) : (
                             <div className="relative rounded-xl overflow-hidden border border-gray-200 h-52 bg-white flex items-center justify-center group shadow-sm">
-                                <img src={`data:${state.mimeType};base64,${state.uploadedImage}`} className="max-h-full object-contain" />
+                                <img src={`data:${state.mimeType};base64,${state.uploadedImage}`} alt="Uploaded" className="max-h-full object-contain" />
                                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                     <button onClick={() => setState(prev => ({...prev, uploadedImage: null}))} className="p-3 bg-white rounded-full text-red-500 hover:scale-110 transition-transform"><Trash2 className="w-6 h-6" /></button>
                                 </div>
@@ -261,7 +262,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
 
                 {/* Outputs */}
                 <div className="lg:col-span-2 space-y-12">
-                    {/* 文案区 */}
+                    {/* SEO Copy Section */}
                     <div className="bg-amz-dark rounded-2xl p-6 text-white shadow-xl relative overflow-hidden">
                         <div className="absolute top-0 right-0 p-4 opacity-10">
                             <FileText className="w-20 h-20" />
@@ -288,7 +289,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
                         </div>
                     </div>
 
-                    {/* 主图场景区 */}
+                    {/* Main Images Section */}
                     <div>
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-lg font-bold text-gray-800 flex items-center">
@@ -313,7 +314,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
                         </div>
                     </div>
 
-                    {/* 高级 A+ 内容区 */}
+                    {/* A+ Content Section */}
                     <div className="pt-4 border-t border-gray-100">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-lg font-bold text-gray-800 flex items-center">
@@ -335,7 +336,7 @@ const ImageGenerator: React.FC<ImageGeneratorProps> = ({ language, seedKeywords,
                                             </div>
                                         ) : img.imageUrl ? (
                                             <div className="w-full h-full relative">
-                                                <img src={img.imageUrl} onClick={() => setLightboxImage(img.imageUrl)} className="w-full h-full object-cover cursor-zoom-in hover:scale-105 transition-transform duration-1000" />
+                                                <img src={img.imageUrl} alt={img.label} onClick={() => setLightboxImage(img.imageUrl)} className="w-full h-full object-cover cursor-zoom-in hover:scale-105 transition-transform duration-1000" />
                                                 <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-all">
                                                     <a href={img.imageUrl} download={`A+_${img.label}.png`} className="p-2.5 bg-white/90 rounded-full shadow-lg text-gray-700 hover:text-purple-600"><Download className="w-5 h-5" /></a>
                                                     <button onClick={() => regenerateSingle(img.id, true)} className="p-2.5 bg-white/90 rounded-full shadow-lg text-gray-700 hover:text-purple-600"><RefreshCw className="w-5 h-5" /></button>
@@ -381,7 +382,7 @@ const ImageCard = ({ img, onEnlarge, prompt, setPrompt, onRegenerate }: any) => 
                 </div>
             ) : img.imageUrl ? (
                 <div className="w-full h-full relative">
-                    <img src={img.imageUrl} onClick={() => onEnlarge(img.imageUrl)} className="w-full h-full object-cover cursor-zoom-in hover:scale-110 transition-transform duration-1000" />
+                    <img src={img.imageUrl} alt={img.label} onClick={() => onEnlarge(img.imageUrl)} className="w-full h-full object-cover cursor-zoom-in hover:scale-110 transition-transform duration-1000" />
                     <div className="absolute top-2 right-2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-all">
                         <a href={img.imageUrl} download={`Main_${img.label}.png`} className="p-2 bg-white/90 rounded-full shadow-md text-gray-600 hover:text-amz-blue"><Download className="w-3.5 h-3.5" /></a>
                         <button onClick={onRegenerate} className="p-2 bg-white/90 rounded-full shadow-md text-gray-600 hover:text-amz-blue"><RefreshCw className="w-3.5 h-3.5" /></button>
